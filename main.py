@@ -101,6 +101,12 @@ class Term:
         else:
             raise NotImplementedError
 
+    def select(self, m, n):
+        if self.vib_order == m and self.rot_order == n:
+            return self
+        else:
+            return 0
+
 
 class Expression:
     def __init__(self, items_list):
@@ -177,6 +183,13 @@ class Expression:
             raise NotImplementedError('Need to define expression_sort function first.')
         else:
             return False
+
+    def select(self, m, n):
+        selected = []
+        for item in self.items:
+            if item.vib_order == m and item.rot_order == n:
+                selected.append(item)
+        return Expression(selected)
 
 
 class Commutator:
@@ -259,20 +272,11 @@ class Commutator:
         else:
             return False
 
-
-
-M = 2
-N = 2
-
-max_order = M + N - 2
-
-transforms = []
-for m in range(1,M+1):
-    n_start = max([3-m,0])
-    for n in range(n_start,N+1):
-        transforms.append(Term(1,m,n,'S'))
-
-n_transforms = len(transforms)
+    def select(self, m, n):
+        if self.vib_order == m and self.rot_order == n:
+            return self
+        else:
+            return 0
 
 
 def H(i):
@@ -287,26 +291,47 @@ def H(i):
     return value
 
 
-def transformedH(i, level):
-    if level == 0:
-        return H(i)
-    elif level > 0:
-        if i == 0:
-            return H(0)
-        elif i > 0:
-            value = transformedH(i, level-1)
-            s_term = transforms[level-1]
-            for k in range(0, i):
-                coeff = ((1j)**(i - k) / (factorial(i - k)))
-                commutator = Expression([s_term.vibCommutator(transformedH(k, level - 1)),
-                                         s_term.rotCommutator(transformedH(k, level - 1))])
-                counter = 1
-                while counter < i - k:
-                    commutator = Expression([s_term.vibCommutator(commutator), s_term.rotCommutator(commutator)])
-                    counter += 1
-                value = Expression([commutator * coeff, value])
-            return value
+def targetExpression(M, N):
+    max_order = M + N - 2
+    transforms = []
+    for m in range(1, M+1):
+        n_start = max([3-m, 0])
+        for n in range(n_start, N+1):
+            transforms.append(Term(1, m, n, 'S'))
+    n_transforms = len(transforms)
+
+    def transformedH(i, level):
+        if level == 0:
+            return H(i)
+        elif level > 0:
+            if i == 0:
+                return H(0)
+            elif i > 0:
+                value = transformedH(i, level-1)
+                s_term = transforms[level-1]
+                for k in range(0, i):
+                    coeff = ((1j)**(i - k) / (factorial(i - k)))
+                    commutator = Expression([s_term.vibCommutator(transformedH(k, level - 1)),
+                                             s_term.rotCommutator(transformedH(k, level - 1))])
+                    counter = 1
+                    while counter < i - k:
+                        commutator = Expression([s_term.vibCommutator(commutator), s_term.rotCommutator(commutator)])
+                        counter += 1
+                    value = Expression([commutator * coeff, value])
+                return value
+            else:
+                raise AttributeError
         else:
             raise AttributeError
-    else:
-        raise AttributeError
+
+    up_to_max_order = Expression([transformedH(i, n_transforms) for i in range(0, max_order+1)])
+    select_orders = up_to_max_order.select(M, N)
+    defining_equations = []
+    for level in range(0, n_transforms):
+        transform = transforms[level]
+        a = transform.vib_order
+        b = transform.rot_order
+        term_to_block_diagonalize = Expression([transformedH(i, level) for i in range(0, max_order+1)]).select(a, b)
+        defining_equations.append([transform, term_to_block_diagonalize])
+
+    return select_orders, defining_equations
