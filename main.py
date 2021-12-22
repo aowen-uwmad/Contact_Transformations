@@ -23,6 +23,7 @@ A32 = Function('A32')
 jop = Function('jop')
 pop = Function('pop')
 qop = Function('qop')
+ee = Function('ee')
 
 
 class GenericTerm:
@@ -554,10 +555,65 @@ class Term:
                                                 multiplier*final_coeff,
                                                 final_vib_indices,
                                                 final_rot_indices)
-                                new_vib_indices = [x.subs(kronecker_delta_rules, simultaneous=True) for x in final_vib_indices]
+                                new_vib_indices = [x.subs(kronecker_delta_rules,
+                                                          simultaneous=True) for x in final_vib_indices]
                                 new_term = new_term.changeVibIndices(new_vib_indices)
                                 final_terms.append(new_term)
 
+                return Expression(final_terms)
+        else:
+            return 0
+
+    def rotCommutator(self, other):
+        if self.n_rot_op == 0:
+            return 0
+        elif isinstance(other, Expression):
+            return Expression([self.rotCommutator(term) for term in other.items])
+        elif isinstance(other, Term):
+            if other.n_rot_op == 0:
+                return 0
+            else:
+                n_left_vib_indices = len(self.vib_indices)
+                n_left_rot_indices = len(self.rot_indices)
+                n_right_vib_indices = len(other.vib_indices)
+                n_right_rot_indices = len(other.rot_indices)
+
+                left_vib_indices = v[0:n_left_vib_indices]
+                right_vib_indices = v[n_left_vib_indices:(n_left_vib_indices + n_right_vib_indices)]
+                left_rot_indices = r[0:n_left_rot_indices]
+                right_rot_indices = r[n_left_rot_indices:(n_left_rot_indices + n_right_rot_indices)]
+
+                new_left = self.changeIndices(left_vib_indices, left_rot_indices)
+                new_right = other.changeIndices(right_vib_indices, right_rot_indices)
+
+                final_vib_indices = left_vib_indices + right_vib_indices
+                final_rot_indices = left_rot_indices + right_rot_indices
+                final_coeff = (1/2) * new_left.coeff * new_right.coeff
+
+                vib_op_list = [new_left.vib_op + new_right.vib_op, new_right.vib_op + new_left.vib_op]
+                rot_op_list = pure_rotation_commutator(new_left.rot_op,
+                                                       new_right.rot_op,
+                                                       new_left.rot_indices,
+                                                       new_right.rot_indices)
+
+                final_terms = []
+                if rot_op_list == 0:
+                    return 0
+                else:
+                    for item in rot_op_list:
+                        if item == 0:
+                            pass
+                        else:
+                            rot_op = item[0]
+                            new_indices = item[1]
+                            multiplier = item[2]
+                            for vib_op in vib_op_list:
+                                new_term = Term(vib_op,
+                                                rot_op,
+                                                multiplier*final_coeff,
+                                                final_vib_indices,
+                                                final_rot_indices + tuple(new_indices))
+                                final_terms.append(new_term)
                 return Expression(final_terms)
         else:
             return 0
@@ -660,6 +716,108 @@ def pure_vibration_commutator(left: list, right: list):
                     for op in b:
                         vib_op.append(op)
                     final_list.append([vib_op, kd_rules, mult])
+        if len(final_list) == 0:
+            return 0
+        else:
+            return final_list
+    else:
+        raise ValueError
+
+
+def pure_rotation_commutator(left: list, right: list, left_indices: list, right_indices: list):
+    if len(left) == 0:
+        return 0
+    elif len(left) == 1:
+        if len(right) == 0:
+            return 0
+        elif len(right) == 1:
+            a = left[0]
+            b = right[0]
+            a_index = list(preorder_traversal(a))[1]
+            b_index = list(preorder_traversal(b))[1]
+            if a_index == b_index:
+                return 0
+            else:
+                used_indices = left_indices + right_indices
+                unused_indices = [i for i in r if i not in used_indices]
+                new_index = unused_indices[0]
+                multiplier = (-1)*I*ee(a_index, b_index, new_index)
+                rot_op = jop(new_index)
+                return [[[rot_op], [new_index], multiplier]]
+        elif len(right) > 1:
+            a = left[0]
+            b = right[0]
+            c = right[1:]
+            first_commutator = pure_rotation_commutator([a], c, left_indices, right_indices)
+            second_commutator = pure_rotation_commutator([a], [b])
+            final_list = []
+            if first_commutator == 0:
+                pass
+            else:
+                for item in first_commutator:
+                    if item == 0:
+                        pass
+                    else:
+                        rot_op = item[0]
+                        new_indices = item[1]
+                        mult = item[2]
+                        new_op = [b]
+                        for op in rot_op:
+                            new_op.append(op)
+                        final_list.append([new_op, new_indices, mult])
+            if second_commutator == 0:
+                pass
+            else:
+                for item in second_commutator:
+                    if item == 0:
+                        pass
+                    else:
+                        rot_op = item[0]
+                        new_indices = item[1]
+                        mult = item[2]
+                        for op in c:
+                            rot_op.append(op)
+                        final_list.append([rot_op, new_indices, mult])
+            if len(final_list) == 0:
+                return 0
+            else:
+                return final_list
+        else:
+            raise ValueError
+    elif len(left) > 1:
+        a = left[0]
+        b = left[1:]
+        c = right
+        first_commutator = pure_rotation_commutator(b, c, left_indices, right_indices)
+        second_commutator = pure_rotation_commutator([a], c, left_indices, right_indices)
+        final_list = []
+        if first_commutator == 0:
+            pass
+        else:
+            for item in first_commutator:
+                if item == 0:
+                    pass
+                else:
+                    rot_op = item[0]
+                    new_indices = item[1]
+                    mult = item[2]
+                    new_op = [a]
+                    for op in rot_op:
+                        new_op.append(op)
+                    final_list.append([new_op, new_indices, mult])
+        if second_commutator == 0:
+            pass
+        else:
+            for item in second_commutator:
+                if item == 0:
+                    pass
+                else:
+                    rot_op = item[0]
+                    new_indices = item[1]
+                    mult = item[2]
+                    for op in b:
+                        rot_op.append(op)
+                    final_list.append([rot_op, new_indices, mult])
         if len(final_list) == 0:
             return 0
         else:
