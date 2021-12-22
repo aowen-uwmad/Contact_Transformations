@@ -436,7 +436,11 @@ class Term:
             substitution_rules[self.vib_indices[i]] = new_vib_indices_list[i]
         new_vib_op = [x.subs(substitution_rules, simultaneous=True) for x in self.vib_op]
         new_coeff = self.coeff.subs(substitution_rules, simultaneous=True)
-        return Term(new_vib_op, self.rot_op, new_coeff, new_vib_indices_list, self.rot_indices)
+        new_vib_indices = []
+        for x in new_vib_indices_list:
+            if x not in new_vib_indices:
+                new_vib_indices.append(x)
+        return Term(new_vib_op, self.rot_op, new_coeff, new_vib_indices, self.rot_indices)
 
     def changeRotIndices(self, new_rot_indices_list):
         if len(new_rot_indices_list) != len(self.rot_indices):
@@ -463,10 +467,11 @@ class Term:
                 larger_vib_term = self
             # Changing smaller term to match indices of larger term.  That way the additional indices of the larger
             # term are unaffected.  If same, then doesn't matter.
+            # TODO: Fix handling of "extra" indices that do not have a corresponding operator.
             combined_vib_indices = larger_vib_term.vib_indices
             combined_vib_op = larger_vib_term.vib_op
             vib_substitutions = {}
-            for i in range(0, smaller_vib_term.n_vib_op):
+            for i in range(0, smaller_vib_term.n_vib_op+1):
                 smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
                 larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
                 vib_substitutions[smaller_vib_index] = larger_vib_index
@@ -543,15 +548,18 @@ class Term:
                                                 multiplier*final_coeff,
                                                 final_vib_indices,
                                                 final_rot_indices)
-                                new_term = new_term.changeVibIndices(kronecker_delta_rules)
+                                new_vib_indices = [x.subs(kronecker_delta_rules, simultaneous=True) for x in final_vib_indices]
+                                new_term = new_term.changeVibIndices(new_vib_indices)
                                 final_terms.append(new_term)
 
-                return Expression(final_terms)
+                for term in final_terms:
+                    print(term)
+                return final_terms
         else:
             return 0
 
 
-def pure_vibrational_commutator(left: list, right: list):
+def pure_vibration_commutator(left: list, right: list):
     if len(left) == 0:
         return 0
     elif len(left) == 1:
@@ -567,19 +575,91 @@ def pure_vibrational_commutator(left: list, right: list):
             elif a.func == qop and b.func == pop:
                 kronecker_delta_rules = {a_index: b_index}
                 multiplier = I
-                return [[], kronecker_delta_rules, multiplier]
+                return [[[], kronecker_delta_rules, multiplier]]
             elif a.func == pop and b.func == qop:
                 kronecker_delta_rules = {a_index: b_index}
                 multiplier = (-1)*I
-                return [[], kronecker_delta_rules, multiplier]
+                return [[[], kronecker_delta_rules, multiplier]]
             else:
                 raise ValueError
         elif len(right) > 1:
-            pass
+            a = left[0]
+            b = right[0]
+            c = right[1:]
+            first_commutator = pure_vibration_commutator([a], c)
+            second_commutator = pure_vibration_commutator([a], [b])
+            final_list = []
+            if first_commutator == 0:
+                pass
+            else:
+                for item in first_commutator:
+                    if item == 0:
+                        pass
+                    else:
+                        vib_op = item[0]
+                        kd_rules = item[1]
+                        mult = item[2]
+                        new_op = [b]
+                        for op in vib_op:
+                            new_op.append(op)
+                        final_list.append([new_op, kd_rules, mult])
+            if second_commutator == 0:
+                pass
+            else:
+                for item in second_commutator:
+                    if item == 0:
+                        pass
+                    else:
+                        vib_op = item[0]
+                        kd_rules = item[1]
+                        mult = item[2]
+                        for op in c:
+                            vib_op.append(op)
+                        final_list.append([vib_op, kd_rules, mult])
+            if len(final_list) == 0:
+                return 0
+            else:
+                return final_list
         else:
             raise ValueError
     elif len(left) > 1:
-        pass
+        a = left[0]
+        b = left[1:]
+        c = right
+        first_commutator = pure_vibration_commutator(b, c)
+        second_commutator = pure_vibration_commutator([a], c)
+        final_list = []
+        if first_commutator == 0:
+            pass
+        else:
+            for item in first_commutator:
+                if item == 0:
+                    pass
+                else:
+                    vib_op = item[0]
+                    kd_rules = item[1]
+                    mult = item[2]
+                    new_op = [a]
+                    for op in vib_op:
+                        new_op.append(op)
+                    final_list.append([new_op, kd_rules, mult])
+        if second_commutator == 0:
+            pass
+        else:
+            for item in second_commutator:
+                if item == 0:
+                    pass
+                else:
+                    vib_op = item[0]
+                    kd_rules = item[1]
+                    mult = item[2]
+                    for op in b:
+                        vib_op.append(op)
+                    final_list.append([vib_op, kd_rules, mult])
+        if len(final_list) == 0:
+            return 0
+        else:
+            return final_list
     else:
         raise ValueError
 
