@@ -558,9 +558,7 @@ class Term:
                                 new_term = new_term.changeVibIndices(new_vib_indices)
                                 final_terms.append(new_term)
 
-                for term in final_terms:
-                    print(term)
-                return final_terms
+                return Expression(final_terms)
         else:
             return 0
 
