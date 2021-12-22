@@ -467,14 +467,20 @@ class Term:
                 larger_vib_term = self
             # Changing smaller term to match indices of larger term.  That way the additional indices of the larger
             # term are unaffected.  If same, then doesn't matter.
-            # TODO: Fix handling of "extra" indices that do not have a corresponding operator.
             combined_vib_indices = larger_vib_term.vib_indices
             combined_vib_op = larger_vib_term.vib_op
             vib_substitutions = {}
-            for i in range(0, smaller_vib_term.n_vib_op+1):
+            for i in range(0, smaller_vib_term.n_vib_op):
                 smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
                 larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
                 vib_substitutions[smaller_vib_index] = larger_vib_index
+            if len(vib_substitutions.keys()) < len(smaller_vib_term.vib_indices):
+                has_rules = [i for i in vib_substitutions.keys()]
+                needs_rules = [i for i in smaller_vib_term.vib_indices if i not in has_rules]
+                used_indices = [i for i in vib_substitutions.items()]
+                unused_indices = [i for i in larger_vib_term.vib_indices if i not in used_indices]
+                for i in range(0, len(needs_rules)):
+                    vib_substitutions[needs_rules[i]] = unused_indices[i]
             new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
             new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
             if len(new_smaller_vib_term.rot_indices) <= len(larger_vib_term.rot_indices):
