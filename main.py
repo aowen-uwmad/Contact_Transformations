@@ -1,13 +1,13 @@
 from math import factorial
 import numpy as np
-from sympy import I, symbols, Function, preorder_traversal, Basic, Expr, signsimp
+from sympy import I, symbols, Function, preorder_traversal, Basic, Expr, signsimp, Add, Mul, Pow
 from sympy.core.function import UndefinedFunction
 
-vibrational_indices_str = ' '.join(['v{:02d}'.format(i) for i in range(0, 30)])
-v = symbols(vibrational_indices_str)
+# vibrational_indices_str = ' '.join(['v{:02d}'.format(i) for i in range(0, 30)])
+v = [symbols('v{:02d}'.format(i)) for i in range(0,30)]
 
-rotational_indices_str = ' '.join(['r{:02d}'.format(i) for i in range(0, 30)])
-r = symbols(rotational_indices_str)
+# rotational_indices_str = ' '.join(['r{:02d}'.format(i) for i in range(0, 30)])
+r = [symbols('r{:02d}'.format(i)) for i in range(0, 30)]
 
 A = Function('A')
 A20 = Function('A20')
@@ -420,6 +420,9 @@ class Term:
         else:
             return False
 
+    def __len__(self):
+        return 1
+
     def willCombineWith(self, other):
         if isinstance(other, Term):
             if self.n_vib_op != other.n_vib_op:
@@ -473,24 +476,27 @@ class Term:
             else:
                 smaller_vib_term = other
                 larger_vib_term = self
-            # Changing smaller term to match indices of larger term.  That way the additional indices of the larger
-            # term are unaffected.  If same, then doesn't matter.
             combined_vib_indices = larger_vib_term.vib_indices
             combined_vib_op = larger_vib_term.vib_op
-            vib_substitutions = {}
-            for i in range(0, smaller_vib_term.n_vib_op):
-                smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
-                larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
-                vib_substitutions[smaller_vib_index] = larger_vib_index
-            if len(vib_substitutions.keys()) < len(smaller_vib_term.vib_indices):
-                has_rules = [i for i in vib_substitutions.keys()]
-                needs_rules = [i for i in smaller_vib_term.vib_indices if i not in has_rules]
-                used_indices = [i for i in vib_substitutions.items()]
-                unused_indices = [i for i in larger_vib_term.vib_indices if i not in used_indices]
-                for i in range(0, len(needs_rules)):
-                    vib_substitutions[needs_rules[i]] = unused_indices[i]
-            new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
-            new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
+            if smaller_vib_term.vib_indices == larger_vib_term.vib_indices:
+                new_smaller_vib_term = smaller_vib_term
+            else:
+                # Changing smaller term to match indices of larger term.  That way the additional indices of the larger
+                # term are unaffected.  If same, then doesn't matter.
+                vib_substitutions = {}
+                for i in range(0, smaller_vib_term.n_vib_op):
+                    smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
+                    larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
+                    vib_substitutions[smaller_vib_index] = larger_vib_index
+                if len(vib_substitutions.keys()) < len(smaller_vib_term.vib_indices):
+                    has_rules = [i for i in vib_substitutions.keys()]
+                    needs_rules = [i for i in smaller_vib_term.vib_indices if i not in has_rules]
+                    used_indices = [value for key, value in vib_substitutions.items()]
+                    unused_indices = [i for i in larger_vib_term.vib_indices if i not in used_indices]
+                    for i in range(0, len(needs_rules)):
+                        vib_substitutions[needs_rules[i]] = unused_indices[i]
+                new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
+                new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
             if len(new_smaller_vib_term.rot_indices) <= len(larger_vib_term.rot_indices):
                 smaller_rot_term = new_smaller_vib_term
                 larger_rot_term = larger_vib_term
@@ -499,20 +505,23 @@ class Term:
                 larger_rot_term = new_smaller_vib_term
             combined_rot_indices = larger_rot_term.rot_indices
             combined_rot_op = larger_rot_term.rot_op
-            rot_substitutions = {}
-            for i in range(0, smaller_rot_term.n_rot_op):
-                smaller_rot_index = [x for x in preorder_traversal(smaller_rot_term.rot_op[i])][1]
-                larger_rot_index = [x for x in preorder_traversal(larger_rot_term.rot_op[i])][1]
-                rot_substitutions[smaller_rot_index] = larger_rot_index
-            if len(rot_substitutions.keys()) < len(smaller_rot_term.rot_indices):
-                has_rules = [i for i in rot_substitutions.keys()]
-                needs_rules = [i for i in smaller_rot_term.rot_indices if i not in has_rules]
-                used_indices = [i for i in rot_substitutions.items()]
-                unused_indices = [i for i in larger_rot_term.rot_indices if i not in used_indices]
-                for i in range(0, len(needs_rules)):
-                    rot_substitutions[needs_rules[i]] = unused_indices[i]
-            new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
-            new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
+            if smaller_rot_term.rot_indices == larger_rot_term.rot_indices:
+                new_smaller_rot_term = smaller_rot_term
+            else:
+                rot_substitutions = {}
+                for i in range(0, smaller_rot_term.n_rot_op):
+                    smaller_rot_index = [x for x in preorder_traversal(smaller_rot_term.rot_op[i])][1]
+                    larger_rot_index = [x for x in preorder_traversal(larger_rot_term.rot_op[i])][1]
+                    rot_substitutions[smaller_rot_index] = larger_rot_index
+                if len(rot_substitutions.keys()) < len(smaller_rot_term.rot_indices):
+                    has_rules = [i for i in rot_substitutions.keys()]
+                    needs_rules = [i for i in smaller_rot_term.rot_indices if i not in has_rules]
+                    used_indices = [value for key, value in rot_substitutions.items()]
+                    unused_indices = [i for i in larger_rot_term.rot_indices if i not in used_indices]
+                    for i in range(0, len(needs_rules)):
+                        rot_substitutions[needs_rules[i]] = unused_indices[i]
+                new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
+                new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
             combined_coefficient = larger_rot_term.coeff + new_smaller_rot_term.coeff
             combined_term = Term(combined_vib_op,
                                  combined_rot_op,
@@ -626,7 +635,7 @@ class Term:
                                                 rot_op,
                                                 multiplier*final_coeff,
                                                 final_vib_indices,
-                                                final_rot_indices + tuple(new_indices))
+                                                final_rot_indices + list(new_indices))
                                 final_terms.append(new_term)
                 final_expression = Expression(final_terms)
                 for term in final_expression:
@@ -944,6 +953,9 @@ class Expression:
         else:
             return False
 
+    def __len__(self):
+        return len([item for item in self])
+
     def vibCommutator(self, other):
         return Expression([term.vibCommutator(other) for term in self.items])
 
@@ -1067,6 +1079,9 @@ class LadderTerm:
         else:
             return False
 
+    def __len__(self):
+        return 1
+
     def willCombineWith(self, other):
         if isinstance(other, LadderTerm):
             if self.n_vib_op != other.n_vib_op:
@@ -1124,20 +1139,23 @@ class LadderTerm:
             # term are unaffected.  If same, then doesn't matter.
             combined_vib_indices = larger_vib_term.vib_indices
             combined_vib_op = larger_vib_term.vib_op
-            vib_substitutions = {}
-            for i in range(0, smaller_vib_term.n_vib_op):
-                smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
-                larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
-                vib_substitutions[smaller_vib_index] = larger_vib_index
-            if len(vib_substitutions.keys()) < len(smaller_vib_term.vib_indices):
-                has_rules = [i for i in vib_substitutions.keys()]
-                needs_rules = [i for i in smaller_vib_term.vib_indices if i not in has_rules]
-                used_indices = [i for i in vib_substitutions.items()]
-                unused_indices = [i for i in larger_vib_term.vib_indices if i not in used_indices]
-                for i in range(0, len(needs_rules)):
-                    vib_substitutions[needs_rules[i]] = unused_indices[i]
-            new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
-            new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
+            if smaller_vib_term.vib_indices == larger_vib_term.vib_indices:
+                new_smaller_vib_term = smaller_vib_term
+            else:
+                vib_substitutions = {}
+                for i in range(0, smaller_vib_term.n_vib_op):
+                    smaller_vib_index = [x for x in preorder_traversal(smaller_vib_term.vib_op[i])][1]
+                    larger_vib_index = [x for x in preorder_traversal(larger_vib_term.vib_op[i])][1]
+                    vib_substitutions[smaller_vib_index] = larger_vib_index
+                if len(vib_substitutions.keys()) < len(smaller_vib_term.vib_indices):
+                    has_rules = [i for i in vib_substitutions.keys()]
+                    needs_rules = [i for i in smaller_vib_term.vib_indices if i not in has_rules]
+                    used_indices = [value for key, value in vib_substitutions.items()]
+                    unused_indices = [i for i in larger_vib_term.vib_indices if i not in used_indices]
+                    for i in range(0, len(needs_rules)):
+                        vib_substitutions[needs_rules[i]] = unused_indices[i]
+                new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
+                new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
             if len(new_smaller_vib_term.rot_indices) <= len(larger_vib_term.rot_indices):
                 smaller_rot_term = new_smaller_vib_term
                 larger_rot_term = larger_vib_term
@@ -1277,6 +1295,9 @@ class LadderExpression:
         else:
             return False
 
+    def __len__(self):
+        return len([item for item in self])
+
     def toOperator(self):
         return Expression([term.toOperator() for term in self.items])
 
@@ -1310,18 +1331,553 @@ def transform_solution(operator_expression):
     return final_expression
 
 
+def vib_indices_sorter(indices_list):
+    str_list = [str(x) for x in indices_list]
+    sorted_list = sorted(str_list)
+    if str_list == sorted_list:
+        return list(indices_list)
+    else:
+        new_indices_list = []
+        for i in range(0, len(sorted_list)):
+            correct_str = sorted_list[i]
+            for j in range(0, len(str_list)):
+                candidate = str_list[j]
+                if candidate == correct_str:
+                    new_indices_list.append(indices_list[j])
+                    break
+        return list(new_indices_list)
+
+
+def rot_indices_sorter(indices_list):
+    str_list = [str(x) for x in indices_list]
+    sorted_list = sorted(str_list)
+    if str_list == sorted_list:
+        return list(indices_list)
+    else:
+        new_indices_list = []
+        for i in range(0, len(sorted_list)):
+            correct_str = sorted_list[i]
+            for j in range(0, len(str_list)):
+                candidate = str_list[j]
+                if candidate == correct_str:
+                    new_indices_list.append(indices_list[j])
+                    break
+        return list(new_indices_list)
+
 
 h20 = (Term([qop(v[0]), qop(v[1])], [], A20(v[0], v[1]), [v[0], v[1]], []) +
        Term([pop(v[0]), pop(v[1])], [], A20(v[0], v[1]), [v[0], v[1]], []))
+
+
+def A20_simplify(term):
+    def do_simplify(coefficient):
+        A20_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A20:
+                A20_terms.append(item)
+
+        if len(A20_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A20_terms:
+            va, vb = item.args
+            str_list = [str(va), str(vb)]
+            if str_list != sorted(str_list):
+                sub_rules[item] = (omega(va) / omega(vb)) * A20(vb, va)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    if isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A20_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A20_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h30 = Term([qop(v[0]), qop(v[1]), qop(v[2])], [], A30(v[0], v[1], v[2]), [v[0], v[1], v[2]], [])
+
+
+def A30_simplify(term):
+    def do_simplify(coefficient):
+        A30_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A30:
+                A30_terms.append(item)
+
+        if len(A30_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A30_terms:
+            va, vb, vc = item.args
+            if [va, vb, vc] != vib_indices_sorter([va, vb, vc]):
+                sub_rules[item] = A30(*vib_indices_sorter([va, vb, vc]))
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A30_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A30_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h40 = (Term([qop(v[0]), qop(v[1]), qop(v[2]), qop(v[3])], [], A40(v[0], v[1], v[2], v[3]), [v[0], v[1], v[2], v[3]], []) +
        Term([qop(v[0]), pop(v[1]), qop(v[2]), pop(v[3])], [], B40(v[0], v[1], v[2], v[3]), [v[0], v[1], v[2], v[3]], []))
+
+
+def A40_simplify(term):
+    def do_simplify(coefficient):
+        A40_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A40:
+                A40_terms.append(item)
+
+        if len(A40_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A40_terms:
+            indices = list(item.args)
+            if indices != vib_indices_sorter(indices):
+                sub_rules[item] = A40(*vib_indices_sorter(indices))
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A40_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A40_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
+def B40_simplify(term):
+    def do_simplify(coefficient):
+        B40_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == B40:
+                B40_terms.append(item)
+
+        if len(B40_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in B40_terms:
+            indices = list(item.args)
+            pair1 = indices[:2]
+            pair2 = indices[2:]
+            sorted_pair1 = vib_indices_sorter(pair1)
+            sorted_pair2 = vib_indices_sorter(pair2)
+            first_sorted_pair1 = sorted_pair1[0]
+            first_sorted_pair2 = sorted_pair2[0]
+            if [first_sorted_pair1, first_sorted_pair2] == vib_indices_sorter([first_sorted_pair1, first_sorted_pair2]):
+                sorted_indices = sorted_pair1 + sorted_pair2
+                needs_pair_swap = False
+            else:
+                sorted_indices = sorted_pair2 + sorted_pair1
+                needs_pair_swap = True
+            va, vb, vc, vd = sorted_indices
+            if pair1 == sorted_pair1:
+                needs_swap1 = False
+            else:
+                needs_swap1 = True
+            if pair2 == sorted_pair2:
+                needs_swap2 = False
+            else:
+                needs_swap2 = True
+            if needs_pair_swap == False and needs_swap1 == False and needs_swap2 == False:
+                pass
+            elif (needs_pair_swap == False and needs_swap1 == False and needs_swap2 == True)\
+                    or (needs_pair_swap == True and needs_swap1 == True and needs_swap2 == False):
+                sub_rules[item] = -(omega(vc)/omega(vd))*B40(va, vb, vc, vd)
+            elif needs_pair_swap == False and needs_swap1 == True and needs_swap2 == False\
+                    or (needs_pair_swap == True and needs_swap1 == False and needs_swap2 == True):
+                sub_rules[item] = -(omega(va)/omega(vb))*B40(va, vb, vc, vd)
+            elif needs_pair_swap == True and needs_swap1 == False and needs_swap2 == False:
+                sub_rules[item] = B40(va, vb, vc, vd)
+            else:  # (needs_pair_swap == False and needs_swap1 == True and needs_swap2 == True)
+                #    or (needs_pair_swap == True and needs_swap1 == True and needs_swap2 == True)
+                sub_rules[item] = (omega(va)*omega(vc)/(omega(vb)*omega(vd)))*B40(va, vb, vc, vd)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([B40_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([B40_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h21 = Term([qop(v[0]), pop(v[1])], [jop(r[0])], A21(v[0], v[1], r[0]), [v[0], v[1]], [r[0]])
+
+
+def A21_simplify(term):
+    def do_simplify(coefficient):
+        A21_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A21:
+                A21_terms.append(item)
+
+        if len(A21_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A21_terms:
+            va, vb, ra = item.args
+            if [va, vb] != vib_indices_sorter([va, vb]):
+                sub_rules[item] = -(omega(va)/omega(vb))*A21(vb, va, ra)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A21_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A21_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h31 = Term([qop(v[0]), pop(v[1]), qop(v[2])], [jop(r[0])], A31(v[0], v[1], v[2], r[0]), [v[0], v[1], v[2]], [r[0]])
+
+
+def A31_simplify(term):
+    def do_simplify(coefficient):
+        A31_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A31:
+                A31_terms.append(item)
+
+        if len(A31_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A31_terms:
+            va, vb, vc, ra = item.args
+            if [va, vc] != vib_indices_sorter([va, vc]):
+                sub_rules[item] = A31(vc, vb, va, ra)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A31_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A31_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h02 = Term([], [jop(r[0]), jop(r[1])], A02(r[0], r[1]), [], [r[0], r[1]])
+
+# simplification requires introduction of the rotational constants directly into the coefficient expression.
+
 h12 = Term([qop(v[0])], [jop(r[0]), jop(r[1])], A12(v[0], r[0], r[1]), [v[0]], [r[0], r[1]])
+
+
+def A12_simplify(term):
+    def do_simplify(coefficient):
+        A12_items = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A12:
+                A12_items.append(item)
+
+        if len(A12_items) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A12_items:
+            va, ra, rb = item.args
+            if [ra, rb] != rot_indices_sorter([ra, rb]):
+                sub_rules[item] = A12(va, rb, ra)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A12_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A12_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h22 = Term([qop(v[0]), qop(v[1])], [jop(r[0]), jop(r[1])], A22(v[0], v[1], r[0], r[1]), [v[0], v[1]], [r[0], r[1]])
+
+
+def A22_simplify(term):
+    def do_simplify(coefficient):
+        A22_items = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A22:
+                A22_items.append(item)
+
+        if len(A22_items) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A22_items:
+            va, vb, ra, rb = item.args
+            if [va, vb] == vib_indices_sorter([va, vb]):
+                swap_vib = False
+            else:
+                swap_vib = True
+            if [ra, rb] == rot_indices_sorter([ra, rb]):
+                swap_rot = False
+            else:
+                swap_rot = True
+            sorted_indices = vib_indices_sorter([va, vb]) + rot_indices_sorter([ra, rb])
+            if swap_vib == False and swap_rot == False:
+                pass
+            else:
+                sub_rules[item] = A22(*sorted_indices)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A22_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A22_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
 h32 = Term([qop(v[0]), qop(v[1]), qop(v[2])], [jop(r[0]), jop(r[1])], A32(v[0], v[1], v[2], r[0], r[1]), [v[0], v[1], v[2]], [r[0], r[1]])
+
+
+def A32_simplify(term):
+    def do_simplify(coefficient):
+        A32_terms = []
+        for item in preorder_traversal(coefficient):
+            if item.func == A32:
+                A32_terms.append(item)
+
+        if len(A32_terms) == 0:
+            return coefficient
+
+        sub_rules = {}
+        for item in A32_terms:
+            indices = list(item.args)
+            va, vb, vc, ra, rb = indices
+            if [va, vc] == vib_indices_sorter([va, vc]):
+                sorted_indices = [va, vb, vc] + rot_indices_sorter([ra, rb])
+            else:
+                sorted_indices = [vc, vb, va] + rot_indices_sorter([ra, rb])
+
+            if indices != sorted_indices:
+                sub_rules[item] = A32(*sorted_indices)
+
+        new_coefficient = coefficient.subs(sub_rules, simultaneous=True)
+        return new_coefficient
+
+    if isinstance(term, Term):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return Term(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, LadderTerm):
+        coeff = term.coeff
+        new_coeff = do_simplify(coeff)
+        return LadderTerm(term.vib_op, term.rot_op, new_coeff, term.vib_indices, term.rot_indices)
+    elif isinstance(term, Expression):
+        return Expression([A32_simplify(item) for item in term])
+    elif isinstance(term, LadderExpression):
+        return LadderExpression([A32_simplify(item) for item in term])
+    else:
+        try:
+            coeff = term
+            new_coeff = do_simplify(coeff)
+            return new_coeff
+        except:
+            raise TypeError('Unrecognized object type.')
+
+
+def AMN_simplify(term):
+    for simple_function in [A30_simplify, A40_simplify, A31_simplify, A12_simplify, A22_simplify, A32_simplify]:
+        term = simple_function(term)
+
+    # for complex_function in [A20_simplify, B40_simplify, A21_simplify]:
+    #     term = complex_function(term)
+
+    return term
+
+
+def custom_expand(coefficient):
+    if isinstance(coefficient, (Add, Mul)):
+        power_args = [x for x in coefficient.args if isinstance(x, Pow)]
+        nonpower_args = [x for x in coefficient.args if x not in power_args]
+        power_part = coefficient.func(*power_args)
+        nonpower_part = coefficient.func(*nonpower_args)
+        new_coefficient = coefficient.func(nonpower_part, power_part)
+        return new_coefficient
+    else:
+        return coefficient
+
+
+def AMN_collection(coefficient):
+    functions = []
+    for item in preorder_traversal(coefficient):
+        if isinstance(item, Function):
+            if item not in functions:
+                functions.append(item)
+
+    AMN_functions = []
+    omega_functions = []
+    for item in functions:
+        if item.func not in [omega, ee]:
+            AMN_functions.append(item)
+        elif item.func == omega:
+            omega_functions.append(item)
+
+    if len(AMN_functions) == 0:
+        return coefficient.collect(omega_functions)
+
+    collection_dict = coefficient.collect(AMN_functions, evaluate=False)
+    summation = 0
+    for key, value in collection_dict.items():
+        summation += key*AMN_collection(value)
+
+    return summation
+
+
+
+
+s12 = transform_solution(h12)
+s21 = transform_solution(h21)
+
+
+s22_def_a = s21.vibCommutator(h21)*I
+s22_def_b = s21.rotCommutator(h02)*I
+s22_def_c = s21.vibCommutator(s21.vibCommutator(h20))*(-1/2)
+s22_def_d = s12.vibCommutator(h30)*I
+s22_def_e = h22
+
+s22_def = (
+    s21.vibCommutator(h21)*I +
+    s21.rotCommutator(h02)*I +
+    s21.vibCommutator(s21.vibCommutator(h20))*(-1/2) +
+    s12.vibCommutator(h30)*I +
+    h22
+)
+
+simplified_s22_def = AMN_simplify(s22_def)
+
+collected = AMN_simplify(signsimp(simplified_s22_def[0].coeff).expand())
+
+# s22 = transform_solution(s22_def)
 
 evil_term = Term([qop(v[4]),qop(v[3]),qop(v[2])],[],A32(v[0],v[1],v[2],v[3],v[4]),[v[0],v[1],v[2],v[3],v[4]],[])
 
