@@ -2,9 +2,10 @@ from math import factorial
 import numpy as np
 from sympy import I, symbols, Function, preorder_traversal, Basic, Expr, signsimp, Add, Mul, Pow
 from sympy.core.function import UndefinedFunction
+from itertools import permutations
 
 # vibrational_indices_str = ' '.join(['v{:02d}'.format(i) for i in range(0, 30)])
-v = [symbols('v{:02d}'.format(i)) for i in range(0,30)]
+v = [symbols('v{:02d}'.format(i)) for i in range(0, 30)]
 
 # rotational_indices_str = ' '.join(['r{:02d}'.format(i) for i in range(0, 30)])
 r = [symbols('r{:02d}'.format(i)) for i in range(0, 30)]
@@ -1324,11 +1325,59 @@ def transform_solution(operator_expression):
                               ladder_term.rot_indices)
         final_ladder_terms.append(new_term)
     final_ladder_expression = LadderExpression(final_ladder_terms)
-    operator_expression = final_ladder_expression.toOperator()
-    for term in operator_expression:
+    new_operator_expression = final_ladder_expression.toOperator()
+    for term in new_operator_expression:
         term.coeff = signsimp(term.coeff)
-    final_expression = Expression([term for term in operator_expression])
+    final_expression = Expression([term for term in new_operator_expression])
     return final_expression
+
+
+def transform_solution_simplified(operator_expression, base_name: UndefinedFunction):
+    if isinstance(operator_expression, Term):
+        ladder_expression = Expression([operator_expression]).toLadder()
+    elif isinstance(operator_expression, Expression):
+        ladder_expression = operator_expression.toLadder()
+    else:
+        raise TypeError
+    final_ladder_terms = []
+    for i in range(0, len(ladder_expression)):
+        ladder_term = ladder_expression[i]
+        reversed_ladder_term = ladder_term.changeVibIndices(list(reversed(ladder_term.vib_indices)))
+        forward_coefficient = ladder_term.coeff
+        reversed_coefficient = reversed_ladder_term.coeff
+        operator_indices = [list(preorder_traversal(x))[1] for x in ladder_term.vib_op]
+        denominator = sum([sigma(index)*omega(index) for index in operator_indices])
+        new_coefficient = -I*(1/2)*(forward_coefficient+reversed_coefficient)/denominator
+        new_term = LadderTerm(ladder_term.vib_op,
+                              ladder_term.rot_op,
+                              new_coefficient,
+                              ladder_term.vib_indices,
+                              ladder_term.rot_indices)
+        final_ladder_terms.append(new_term)
+    final_ladder_expression = LadderExpression(final_ladder_terms)
+    new_operator_expression = final_ladder_expression.toOperator()
+    subbed_terms = []
+    definitions = {}
+    for term in new_operator_expression:
+        term.coeff = signsimp(term.coeff)
+    new_operator_expression = Expression([term for term in new_operator_expression])
+    for i in range(0, len(new_operator_expression)):
+        term = new_operator_expression[i]
+        sub_name = Function(str(base_name)+'_'+str(i))
+        full_coefficient = term.coeff
+        vib_indices = list(set([x for x in preorder_traversal(full_coefficient) if x in v]))
+        rot_indices = list(set([x for x in preorder_traversal(full_coefficient) if x in r]))
+        indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+        new_coefficient = sub_name(*indices)
+        definitions[new_coefficient] = full_coefficient
+        new_term = Term(term.vib_op,
+                        term.rot_op,
+                        new_coefficient,
+                        term.vib_indices,
+                        term.rot_indices)
+        subbed_terms.append(new_term)
+    final_expression = Expression([term for term in subbed_terms])
+    return final_expression, definitions
 
 
 def vib_indices_sorter(indices_list):
@@ -1818,7 +1867,7 @@ def AMN_simplify(term):
 def custom_expand(coefficient):
     if isinstance(coefficient, (Add, Mul)):
         power_args = [x for x in coefficient.args if isinstance(x, Pow)]
-        nonpower_args = [x for x in coefficient.args if x not in power_args]
+        nonpower_args = [x.expand(deep=False) for x in coefficient.args if x not in power_args]
         power_part = coefficient.func(*power_args)
         nonpower_part = coefficient.func(*nonpower_args)
         new_coefficient = coefficient.func(nonpower_part, power_part)
@@ -1853,10 +1902,83 @@ def AMN_collection(coefficient):
     return summation
 
 
+def definition_permutation_finder(variable, definition):
+    if not isinstance(variable, Function):
+        raise TypeError
+    indices = variable.args
+    vib_indices = [x for x in indices if x in v]
+    rot_indices = [x for x in indices if x in r]
+    if (len(vib_indices) + len(rot_indices)) != len(indices):
+        raise ValueError('Unrecognized indices')
+    sorted_vib_indices = vib_indices_sorter(vib_indices)
+    sorted_rot_indices = rot_indices_sorter(rot_indices)
+    sub_rules = {}
+    for i in range(len(vib_indices)):
+        sub_rules[vib_indices[i]] = sorted_vib_indices[i]
+    for i in range(len(rot_indices)):
+        sub_rules[rot_indices[i]] = sorted_rot_indices[i]
+    canonical_variable = variable.subs(sub_rules, simultaneous=True)
+    canonical_definition = definition.subs(sub_rules, simultaneous=True)
+    permutation_rules = {}
+    vib_permutations = [list(x) for x in permutations(sorted_vib_indices)]
+    rot_permutations = [list(x) for x in permutations(sorted_rot_indices)]
+    for vib_perm in vib_permutations:
+        for rot_perm in rot_permutations:
+            sub_rules = {}
+            if len(vib_perm) > 0:
+                for i in range(len(sorted_vib_indices)):
+                    sub_rules[sorted_vib_indices[i]] = vib_perm[i]
+            if len(rot_perm) > 0:
+                for i in range(len(sorted_rot_indices)):
+                    sub_rules[sorted_rot_indices[i]] = rot_perm[i]
+            perm_variable = canonical_variable.subs(sub_rules, simultaneous=True)
+            if perm_variable == canonical_variable:
+                continue
+            else:
+                perm_definition = canonical_definition.subs(sub_rules, simultaneous=True)
+                difference = signsimp(canonical_definition) - signsimp(perm_definition)
+                combination = signsimp(canonical_definition) + signsimp(perm_definition)
+                if difference == 0:
+                    permutation_rules[perm_variable] = canonical_variable
+                elif combination == 0:
+                    permutation_rules[perm_variable] = -1*canonical_variable
+    return permutation_rules
 
 
-s12 = transform_solution(h12)
-s21 = transform_solution(h21)
+def definition_substitution(coefficient, definitions):
+    definition_functions = [key.func for key, value in definitions.items()]
+    coefficient_functions = []
+    for item in preorder_traversal(coefficient):
+        try:
+            if item.func in definition_functions:
+                if item not in coefficient_functions:
+                    coefficient_functions.append(item)
+        except AttributeError:
+            continue
+    all_sub_rules = {}
+    for key, value in definitions.items():
+        for item in coefficient_functions:
+            if key.func == item.func:
+                vib_indices = [x for x in item.args if x in v]
+                rot_indices = [x for x in item.args if x in r]
+                sorted_indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+                if list(item.args) != sorted_indices:
+                    sub_rules = {}
+                    for i in range(len(key.args)):
+                        sub_rules[key.args[i]] = item.args[i]
+                    new_value = signsimp(value.subs(sub_rules, simultaneous=True))
+                    all_sub_rules[item] = new_value
+    new_coefficient = coefficient.subs(all_sub_rules, simultaneous=True)
+    return new_coefficient
+
+
+definitions = {}
+
+s12, s12_definitions = transform_solution_simplified(h12, Function('s12'))
+definitions = {**definitions, **s12_definitions}
+
+s21, s21_definitions = transform_solution_simplified(h21, Function('s21'))
+definitions = {**definitions, **s21_definitions}
 
 
 s22_def_a = s21.vibCommutator(h21)*I
@@ -1873,9 +1995,20 @@ s22_def = (
     h22
 )
 
-simplified_s22_def = AMN_simplify(s22_def)
+permutation_rules = {}
+for key, value in definitions.items():
+    permutation_rules = {**permutation_rules, **definition_permutation_finder(key, value)}
 
-collected = AMN_simplify(signsimp(simplified_s22_def[0].coeff).expand())
+simple_s22_terms = []
+for term in s22_def:
+    new_term = term
+    new_term.coeff = signsimp(AMN_simplify(new_term.coeff).subs(permutation_rules, simultaneous=True)).expand().simplify()
+    simple_s22_terms.append(new_term)
+
+simplified_s22_def = Expression(simple_s22_terms)
+
+s22, s22_definitions = transform_solution_simplified(simplified_s22_def, Function('s22'))
+definitions = {**definitions, **s22_definitions}
 
 # s22 = transform_solution(s22_def)
 
