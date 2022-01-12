@@ -1,18 +1,24 @@
-from sympy import I, symbols, Function, preorder_traversal, signsimp, Add, Mul, Pow, sympify
+from sympy import I, symbols, Function, preorder_traversal, signsimp, Add, Mul, Pow, sympify, Symbol
 from sympy.core.function import UndefinedFunction
 from itertools import permutations
 from math import factorial
 
 
-jop = Function('jop')
-pop = Function('pop')
-qop = Function('qop')
-ee = Function('ee')
-lop = Function('lop')
-sigma = Function('sigma')
-omega = Function('omega')
-VC = Function('VC')
-RC = Function('RC')
+def printDictionary(dictionary: dict):
+    for key, value in dictionary.items():
+        print('{}:  {}'.format(key, value))
+
+
+jop = Function('jop')  # j rotational operator
+pop = Function('pop')  # p (momentum) vibrational operator
+qop = Function('qop')  # q (position) vibrational operator
+ee = Function('ee')  # Levi-Cevita symbol
+lop = Function('lop')  # L (ladder) vibrational operator
+sigma = Function('sigma')  # sign (+/-)
+omega = Function('omega')  # harmonic frequency
+VC = Function('VC')  # Vibrational Commutator
+RC = Function('RC')  # Rotational Commutator
+D = Function('D')  # Denominator
 
 used_symbols = {i: set() for i in ['v', 'r', 'A', 'B', 'H', 'S']}
 
@@ -59,6 +65,14 @@ def symbolGenerator(base_string: str):
 
 H = symbolGenerator('H')
 S = symbolGenerator('S')
+
+
+def gH(m: int, n: int):
+    return GenericTerm(1, m, n, 'H')
+
+
+def gS(m: int, n: int):
+    return GenericTerm(1, m, n, 'S')
 
 
 def printUsedSymbols(used_symbols_dict):
@@ -836,7 +850,7 @@ class Term:
         print('rot_op (n={}): {}'.format(self.n_rot_op, self.rot_op))
         print('vib_indices: {}'.format(self.vib_indices))
         print('rot_indices: {}'.format(self.rot_indices))
-        print('coefficient: {}'.format(self.coefficient))
+        print('coefficient: {}\n'.format(self.coefficient))
 
 
 def pure_vibration_commutator(left: list, right: list):
@@ -959,8 +973,13 @@ def pure_rotation_commutator(left: list, right: list, left_indices: list, right_
                 return 0
             else:
                 used_indices = left_indices + right_indices
-                unused_indices = [i for i in r if i not in used_indices]
-                new_index = unused_indices[0]
+                new_index = None
+                counter = 0
+                while new_index is None:
+                    if r(counter) in used_indices:
+                        counter += 1
+                    else:
+                        new_index = r(counter)
                 multiplier = (-1)*I*ee(a_index, b_index, new_index)
                 rot_op = jop(new_index)
                 return [[[rot_op], [new_index], multiplier]]
@@ -1385,7 +1404,7 @@ class LadderTerm:
         print('rot_op (n={}): {}'.format(self.n_rot_op, self.rot_op))
         print('vib_indices: {}'.format(self.vib_indices))
         print('rot_indices: {}'.format(self.rot_indices))
-        print('coefficient: {}'.format(self.coefficient))
+        print('coefficient: {}\n'.format(self.coefficient))
 
 
 class LadderExpression:
@@ -1530,4 +1549,115 @@ term_definitions = {
                   [v(0), v(1), v(2)],
                   [r(0), r(1)])
 }
+
+
+def transform_solution(defining_expression, base_name: Symbol):
+    if isinstance(defining_expression, Term):
+        ladder_expression = Expression([defining_expression]).toLadder()
+    elif isinstance(defining_expression, Expression):
+        ladder_expression = defining_expression.toLadder()
+    else:
+        raise TypeError
+
+    final_ladder_terms = []
+
+    for i in range(0, len(ladder_expression)):
+        ladder_term = ladder_expression[i]
+        reversed_ladder_term = ladder_term.changeVibIndices(list(reversed(ladder_term.vib_indices)))
+        forward_coefficient = ladder_term.coefficient
+        reversed_coefficient = reversed_ladder_term.coefficient
+        operator_indices = [list(preorder_traversal(x))[1] for x in ladder_term.vib_op]
+        denominator = D(*[ii for jj in [[sigma(index), omega(index)] for index in operator_indices] for ii in jj])
+        new_coefficient = -I*(1/2)*(forward_coefficient+reversed_coefficient)/denominator
+        new_term = LadderTerm(ladder_term.vib_op,
+                              ladder_term.rot_op,
+                              new_coefficient,
+                              ladder_term.vib_indices,
+                              ladder_term.rot_indices)
+        final_ladder_terms.append(new_term)
+    final_ladder_expression = LadderExpression(final_ladder_terms)
+    new_operator_expression = final_ladder_expression.toOperator()
+    subbed_terms = []
+    substitution_definitions = {}
+    for term in new_operator_expression:
+        term.coefficient = signsimp(term.coefficient)
+    new_operator_expression = Expression(new_operator_expression.items)
+    for i in range(0, len(new_operator_expression)):
+        term = new_operator_expression[i]
+        sub_name = Function(str(base_name)+'_'+str(i))
+        full_coefficient = term.coefficient
+        vib_indices = []
+        rot_indices = []
+        for x in preorder_traversal(full_coefficient):
+            if isinstance(x, Symbol):
+                if str(x)[0] == 'v':
+                    if x not in vib_indices:
+                        vib_indices.append(x)
+                elif str(x)[0] == 'r':
+                    if x not in rot_indices:
+                        rot_indices.append(x)
+        indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+        new_coefficient = sub_name(*indices)
+        substitution_definitions[new_coefficient] = full_coefficient
+        new_term = Term(term.vib_op,
+                        term.rot_op,
+                        new_coefficient,
+                        term.vib_indices,
+                        term.rot_indices)
+        subbed_terms.append(new_term)
+    final_expression = Expression(subbed_terms)
+    return final_expression, substitution_definitions
+
+
+# target, target_defining_equations = targetExpression(2, 2)
+
+
+def find_transforms(defining_equations_list: list, definitions: dict):
+    print('The following transforms will be defined: \n    {}'.format([item[0] for item in defining_equations_list]))
+    with_new_definitions = {**definitions}
+    sub_definitions = {}
+    for transform_term, defining_equation in defining_equations_list:
+        if (not isinstance(transform_term, GenericTerm)) or\
+                (not isinstance(defining_equation, (GenericTerm, GenericExpression))):
+            raise TypeError
+        transform_name = transform_term.symbol
+        print('{} is being defined ...'.format(transform_name))
+        full_defining_equation = defining_equation.toEquation(with_new_definitions)
+        transform_definition, transform_sub_definition = transform_solution(
+            full_defining_equation, transform_name)
+        with_new_definitions[transform_name] = transform_definition
+        sub_definitions = {**sub_definitions, **transform_sub_definition}
+        print(' ... Done.')
+
+    return with_new_definitions, sub_definitions
+
+
+# with_transform_definitions, transform_sub_definitions = find_transforms(target_defining_equations, term_definitions)
+
+
+def find_target_and_definitions(m: int, n: int, term_definitions: dict, full_simplify=False):
+    target, target_defining_equations = targetExpression(m, n)
+    with_transform_definitions, transform_sub_definitions = find_transforms(target_defining_equations, term_definitions)
+    final_target = target.toEquation(with_transform_definitions)
+    if full_simplify:
+        subbed_terms = []
+        for i in range(len(final_target)):
+            term = final_target[i]
+            base_name = Function('H{}{}_{}'.format(m, n, i))
+            full_coefficient = term.coefficient
+            vib_indices = list(set([x for x in preorder_traversal(full_coefficient) if x in used_symbols['v']]))
+            rot_indices = list(set([x for x in preorder_traversal(full_coefficient) if x in used_symbols['r']]))
+            indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+            new_coefficient = base_name(*indices)
+            transform_sub_definitions[new_coefficient] = full_coefficient
+            new_term = Term(term.vib_op,
+                            term.rot_op,
+                            new_coefficient,
+                            term.vib_indices,
+                            term.rot_indices)
+            subbed_terms.append(new_term)
+        final_subbed_target = Expression(subbed_terms)
+        return final_subbed_target, with_transform_definitions, transform_sub_definitions
+    else:
+        return final_target, with_transform_definitions, transform_sub_definitions
 

@@ -75,3 +75,120 @@ def AMN_simplify(some_object, permutations_dictionary: dict):
             raise TypeError('Unrecognized object type.')
 
 
+def custom_expand(coefficient):
+    if isinstance(coefficient, (Add, Mul)):
+        power_args = [x for x in coefficient.args if isinstance(x, Pow)]
+        nonpower_args = [x.expand(deep=False) for x in coefficient.args if x not in power_args]
+        power_part = coefficient.func(*power_args)
+        nonpower_part = coefficient.func(*nonpower_args)
+        new_coefficient = coefficient.func(nonpower_part, power_part)
+        return new_coefficient
+    else:
+        return coefficient
+
+
+def AMN_collection(coefficient):
+    functions = []
+    for item in preorder_traversal(coefficient):
+        if isinstance(item, Function):
+            if item not in functions:
+                functions.append(item)
+
+    AMN_functions = []
+    omega_functions = []
+    for item in functions:
+        if item.func not in [omega, ee]:
+            AMN_functions.append(item)
+        elif item.func == omega:
+            omega_functions.append(item)
+
+    if len(AMN_functions) == 0:
+        return coefficient.collect(omega_functions)
+
+    collection_dict = coefficient.collect(AMN_functions, evaluate=False)
+    summation = 0
+    for key, value in collection_dict.items():
+        summation += key*AMN_collection(value)
+
+    return summation
+
+
+def definition_permutation_finder(variable, definition):
+    if not isinstance(variable, Function):
+        raise TypeError
+    indices = variable.args
+    vib_indices = [x for x in indices if x in v]
+    rot_indices = [x for x in indices if x in r]
+    if (len(vib_indices) + len(rot_indices)) != len(indices):
+        raise ValueError('Unrecognized indices')
+    sorted_vib_indices = vib_indices_sorter(vib_indices)
+    sorted_rot_indices = rot_indices_sorter(rot_indices)
+    sub_rules = {}
+    for i in range(len(vib_indices)):
+        sub_rules[vib_indices[i]] = sorted_vib_indices[i]
+    for i in range(len(rot_indices)):
+        sub_rules[rot_indices[i]] = sorted_rot_indices[i]
+    canonical_variable = variable.subs(sub_rules, simultaneous=True)
+    canonical_definition = definition.subs(sub_rules, simultaneous=True)
+    permutation_rules = {}
+    vib_permutations = [list(x) for x in permutations(sorted_vib_indices)]
+    rot_permutations = [list(x) for x in permutations(sorted_rot_indices)]
+    for vib_perm in vib_permutations:
+        for rot_perm in rot_permutations:
+            sub_rules = {}
+            if len(vib_perm) > 0:
+                for i in range(len(sorted_vib_indices)):
+                    sub_rules[sorted_vib_indices[i]] = vib_perm[i]
+            if len(rot_perm) > 0:
+                for i in range(len(sorted_rot_indices)):
+                    sub_rules[sorted_rot_indices[i]] = rot_perm[i]
+            perm_variable = canonical_variable.subs(sub_rules, simultaneous=True)
+            if perm_variable == canonical_variable:
+                continue
+            else:
+                perm_definition = canonical_definition.subs(sub_rules, simultaneous=True)
+                difference = signsimp(canonical_definition) - signsimp(perm_definition)
+                combination = signsimp(canonical_definition) + signsimp(perm_definition)
+                if difference == 0:
+                    permutation_rules[perm_variable] = canonical_variable
+                elif combination == 0:
+                    permutation_rules[perm_variable] = -1*canonical_variable
+    return permutation_rules
+
+
+def definition_substitution(coefficient, definitions):
+    definition_functions = [key.func for key, value in definitions.items()]
+    coefficient_functions = []
+    for item in preorder_traversal(coefficient):
+        try:
+            if item.func in definition_functions:
+                if item not in coefficient_functions:
+                    coefficient_functions.append(item)
+        except AttributeError:
+            continue
+    all_sub_rules = {}
+    for key, value in definitions.items():
+        for item in coefficient_functions:
+            if key.func == item.func:
+                vib_indices = [x for x in item.args if x in v]
+                rot_indices = [x for x in item.args if x in r]
+                sorted_indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+                if list(item.args) != sorted_indices:
+                    sub_rules = {}
+                    for i in range(len(key.args)):
+                        sub_rules[key.args[i]] = item.args[i]
+                    new_value = signsimp(value.subs(sub_rules, simultaneous=True))
+                    all_sub_rules[item] = new_value
+    new_coefficient = coefficient.subs(all_sub_rules, simultaneous=True)
+    return new_coefficient
+
+
+definitions = {}
+
+s12, s12_definitions = transform_solution_simplified(h12, Function('s12'))
+definitions = {**definitions, **s12_definitions}
+
+s21, s21_definitions = transform_solution_simplified(h21, Function('s21'))
+definitions = {**definitions, **s21_definitions}
+
+
