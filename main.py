@@ -1,4 +1,4 @@
-from sympy import I, symbols, Function, preorder_traversal, signsimp, Add, Mul, Pow, sympify, Symbol
+from sympy import I, symbols, Function, preorder_traversal, signsimp, Add, Mul, Pow, sympify, Symbol, Rational
 from sympy.core.function import UndefinedFunction
 from itertools import permutations
 from math import factorial
@@ -432,7 +432,7 @@ def targetExpression(i: int, j: int):
                 value = transformedH(k, level-1)
                 s_term = transforms[level-1]
                 for l in range(0, k):
-                    coefficient = (I**(k - l) / (factorial(k - l)))
+                    coefficient = I**(k - l)*Rational(1, (factorial(k - l)))
                     commutator = GenericExpression([
                         s_term.vibCommutator(transformedH(l, level-1)),
                         s_term.rotCommutator(transformedH(l, level-1))
@@ -702,7 +702,7 @@ class Term:
                 new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
                 new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
                 if diff_n_rot_indices > 0:
-                    new_smaller_rot_term.coefficient = (1/3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
+                    new_smaller_rot_term.coefficient = Rational(1, 3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
             combined_coefficient = larger_rot_term.coefficient + new_smaller_rot_term.coefficient
             combined_term = Term(combined_vib_op,
                                  combined_rot_op,
@@ -737,7 +737,7 @@ class Term:
 
                 final_vib_indices = left_vib_indices + right_vib_indices
                 final_rot_indices = left_rot_indices + right_rot_indices
-                final_coefficient = (1/2) * new_left.coefficient * new_right.coefficient
+                final_coefficient = Rational(1, 2) * new_left.coefficient * new_right.coefficient
 
                 vib_op_list = pure_vibration_commutator(new_left.vib_op, new_right.vib_op)
                 rot_op_list = [new_left.rot_op+new_right.rot_op, new_right.rot_op+new_left.rot_op]
@@ -792,7 +792,7 @@ class Term:
 
                 final_vib_indices = left_vib_indices + right_vib_indices
                 final_rot_indices = left_rot_indices + right_rot_indices
-                final_coefficient = (1/2) * new_left.coefficient * new_right.coefficient
+                final_coefficient = Rational(1, 2) * new_left.coefficient * new_right.coefficient
 
                 vib_op_list = [new_left.vib_op + new_right.vib_op, new_right.vib_op + new_left.vib_op]
                 rot_op_list = pure_rotation_commutator(new_left.rot_op,
@@ -847,9 +847,9 @@ class Term:
             index = list(preorder_traversal(vib_op))[1]
             ladder_operators.append(lop(index, sigma(index)))
             if vib_op.func == qop:
-                new_coefficient = new_coefficient*(1/2)
+                new_coefficient = new_coefficient*Rational(1, 2)
             elif vib_op.func == pop:
-                new_coefficient = new_coefficient*(1/2)*I*sigma(index)
+                new_coefficient = new_coefficient*Rational(1, 2)*I*sigma(index)
         return LadderTerm(ladder_operators, self.rot_op, new_coefficient, self.vib_indices, self.rot_indices)
 
     def printProperties(self):
@@ -1362,7 +1362,7 @@ class LadderTerm:
             new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
             new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
             if diff_n_rot_indices > 0:
-                new_smaller_rot_term.coefficient = (1/3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
+                new_smaller_rot_term.coefficient = Rational(1, 3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
             combined_coefficient = larger_rot_term.coefficient + new_smaller_rot_term.coefficient
             combined_term = LadderTerm(combined_vib_op,
                                        combined_rot_op,
@@ -1545,7 +1545,7 @@ def transform_solution(defining_expression, base_name: Symbol):
         reversed_coefficient = reversed_ladder_term.coefficient
         operator_indices = [list(preorder_traversal(x))[1] for x in ladder_term.vib_op]
         denominator = D(*[ii for jj in [[sigma(index), omega(index)] for index in operator_indices] for ii in jj])
-        new_coefficient = -I*(1/2)*(forward_coefficient+reversed_coefficient)/denominator
+        new_coefficient = -I*Rational(1, 2)*(forward_coefficient+reversed_coefficient)/denominator
         new_term = LadderTerm(ladder_term.vib_op,
                               ladder_term.rot_op,
                               new_coefficient,
