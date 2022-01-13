@@ -37,5 +37,3 @@ term_definitions = {
 }
 
 ht22, ht22_t, ht22_s = find_target_and_definitions(2, 2, term_definitions, True)
-
-
