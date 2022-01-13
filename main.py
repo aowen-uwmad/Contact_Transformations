@@ -19,6 +19,7 @@ omega = Function('omega')  # harmonic frequency
 VC = Function('VC')  # Vibrational Commutator
 RC = Function('RC')  # Rotational Commutator
 D = Function('D')  # Denominator
+nvm = Symbol('nvm')  # Number of Vibrational Modes
 
 used_symbols = {i: set() for i in ['v', 'r', 'A', 'B', 'H', 'S']}
 
@@ -650,6 +651,7 @@ class Term:
             else:
                 smaller_vib_term = other
                 larger_vib_term = self
+            diff_n_vib_indices = len(larger_vib_term.vib_indices) - len(smaller_vib_term.vib_indices)
             combined_vib_indices = larger_vib_term.vib_indices
             combined_vib_op = larger_vib_term.vib_op
             if smaller_vib_term.vib_indices == larger_vib_term.vib_indices:
@@ -671,12 +673,15 @@ class Term:
                         vib_substitutions[needs_rules[i]] = unused_indices[i]
                 new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
                 new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
+                if diff_n_vib_indices > 0:
+                    new_smaller_vib_term.coefficient = (1/nvm)**diff_n_vib_indices*new_smaller_vib_term.coefficient
             if len(new_smaller_vib_term.rot_indices) <= len(larger_vib_term.rot_indices):
                 smaller_rot_term = new_smaller_vib_term
                 larger_rot_term = larger_vib_term
             else:
                 smaller_rot_term = larger_vib_term
                 larger_rot_term = new_smaller_vib_term
+            diff_n_rot_indices = len(larger_rot_term.rot_indices) - len(smaller_rot_term.rot_indices)
             combined_rot_indices = larger_rot_term.rot_indices
             combined_rot_op = larger_rot_term.rot_op
             if smaller_rot_term.rot_indices == larger_rot_term.rot_indices:
@@ -696,6 +701,8 @@ class Term:
                         rot_substitutions[needs_rules[i]] = unused_indices[i]
                 new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
                 new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
+                if diff_n_rot_indices > 0:
+                    new_smaller_rot_term.coefficient = (1/3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
             combined_coefficient = larger_rot_term.coefficient + new_smaller_rot_term.coefficient
             combined_term = Term(combined_vib_op,
                                  combined_rot_op,
@@ -1314,6 +1321,7 @@ class LadderTerm:
             else:
                 smaller_vib_term = other
                 larger_vib_term = self
+            diff_n_vib_indices = len(larger_vib_term.vib_indices) - len(smaller_vib_term.vib_indices)
             # Changing smaller term to match indices of larger term.  That way the additional indices of the larger
             # term are unaffected.  If same, then doesn't matter.
             combined_vib_indices = larger_vib_term.vib_indices
@@ -1335,12 +1343,15 @@ class LadderTerm:
                         vib_substitutions[needs_rules[i]] = unused_indices[i]
                 new_vib_indices = [x.subs(vib_substitutions, simultaneous=True) for x in smaller_vib_term.vib_indices]
                 new_smaller_vib_term = smaller_vib_term.changeVibIndices(new_vib_indices)
+                if diff_n_vib_indices > 0:
+                    new_smaller_vib_term.coefficient = (1/nvm)**diff_n_vib_indices*new_smaller_vib_term.coefficient
             if len(new_smaller_vib_term.rot_indices) <= len(larger_vib_term.rot_indices):
                 smaller_rot_term = new_smaller_vib_term
                 larger_rot_term = larger_vib_term
             else:
                 smaller_rot_term = larger_vib_term
                 larger_rot_term = new_smaller_vib_term
+            diff_n_rot_indices = len(larger_rot_term.rot_indices) - len(smaller_rot_term.rot_indices)
             combined_rot_indices = larger_rot_term.rot_indices
             combined_rot_op = larger_rot_term.rot_op
             rot_substitutions = {}
@@ -1350,6 +1361,8 @@ class LadderTerm:
                 rot_substitutions[smaller_rot_index] = larger_rot_index
             new_rot_indices = [x.subs(rot_substitutions, simultaneous=True) for x in smaller_rot_term.rot_indices]
             new_smaller_rot_term = smaller_rot_term.changeRotIndices(new_rot_indices)
+            if diff_n_rot_indices > 0:
+                new_smaller_rot_term.coefficient = (1/3)**diff_n_rot_indices*new_smaller_rot_term.coefficient
             combined_coefficient = larger_rot_term.coefficient + new_smaller_rot_term.coefficient
             combined_term = LadderTerm(combined_vib_op,
                                        combined_rot_op,
@@ -1515,42 +1528,6 @@ def rot_indices_sorter(indices_list):
         return list(new_indices_list)
 
 
-term_definitions = {
-    H(2, 0): (Term([qop(v(0)), qop(v(1))], [], A(2, 0)(v(0), v(1)), [v(0), v(1)], [])
-              + Term([pop(v(0)), pop(v(1))], [], A(2, 0)(v(0), v(1)), [v(0), v(1)], [])),
-    H(3, 0): Term([qop(v(0)), qop(v(1)), qop(v(2))], [], A(3, 0)(v(0), v(1), v(2)), [v(0), v(1), v(2)], []),
-    H(4, 0): (Term([qop(v(0)), qop(v(1)), qop(v(2)), qop(v(3))],
-                   [],
-                   A(4, 0)(v(0), v(1), v(2), v(3)),
-                   [v(0), v(1), v(2), v(3)],
-                   [])
-              + Term([qop(v(0)), pop(v(1)), qop(v(2)), pop(v(3))],
-                     [],
-                     B(4, 0)(v(0), v(1), v(2), v(3)),
-                     [v(0), v(1), v(2), v(3)],
-                     [])
-              ),
-    H(2, 1): Term([qop(v(0)), pop(v(1))], [jop(r(0))], A(2, 1)(v(0), v(1), r(0)), [v(0), v(1)], [r(0)]),
-    H(3, 1): Term([qop(v(0)), pop(v(1)), qop(v(2))],
-                  [jop(r(0))],
-                  A(3, 1)(v(0), v(1), v(2), r(0)),
-                  [v(0), v(1), v(2)],
-                  [r(0)]),
-    H(0, 2): Term([], [jop(r(0)), jop(r(1))], A(0, 2)(r(0), r(1)), [], [r(0), r(1)]),
-    H(1, 2): Term([qop(v(0))], [jop(r(0)), jop(r(1))], A(1, 2)(v(0), r(0), r(1)), [v(0)], [r(0), r(1)]),
-    H(2, 2): Term([qop(v(0)), qop(v(1))],
-                  [jop(r(0)), jop(r(1))],
-                  A(2, 2)(v(0), v(1), r(0), r(1)),
-                  [v(0), v(1)],
-                  [r(0), r(1)]),
-    H(3, 2): Term([qop(v(0)), qop(v(1)), qop(v(2))],
-                  [jop(r(0)), jop(r(1))],
-                  A(3, 2)(v(0), v(1), v(2), r(0), r(1)),
-                  [v(0), v(1), v(2)],
-                  [r(0), r(1)])
-}
-
-
 def transform_solution(defining_expression, base_name: Symbol):
     if isinstance(defining_expression, Term):
         ladder_expression = Expression([defining_expression]).toLadder()
@@ -1609,9 +1586,6 @@ def transform_solution(defining_expression, base_name: Symbol):
     return final_expression, substitution_definitions
 
 
-# target, target_defining_equations = targetExpression(2, 2)
-
-
 def find_transforms(defining_equations_list: list, definitions: dict):
     print('The following transforms will be defined: \n    {}'.format([item[0] for item in defining_equations_list]))
     with_new_definitions = {**definitions}
@@ -1630,9 +1604,6 @@ def find_transforms(defining_equations_list: list, definitions: dict):
         print(' ... Done.')
 
     return with_new_definitions, sub_definitions
-
-
-# with_transform_definitions, transform_sub_definitions = find_transforms(target_defining_equations, term_definitions)
 
 
 def find_target_and_definitions(m: int, n: int, term_definitions: dict, full_simplify=False):
