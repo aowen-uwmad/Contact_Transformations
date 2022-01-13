@@ -21,7 +21,7 @@ RC = Function('RC')  # Rotational Commutator
 D = Function('D')  # Denominator
 nvm = Symbol('nvm')  # Number of Vibrational Modes
 
-used_symbols = {i: set() for i in ['v', 'r', 'A', 'B', 'H', 'S']}
+used_symbols = {i: set() for i in ['v', 'r', 'A', 'B0', 'H', 'S']}
 
 
 def v(i: int):
@@ -49,7 +49,7 @@ def functionGenerator(base_string: str):
 
 
 A = functionGenerator('A')
-B = functionGenerator('B')
+B = functionGenerator('B0')
 
 
 def symbolGenerator(base_string: str):
