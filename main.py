@@ -1545,7 +1545,9 @@ def transform_solution(defining_expression, base_name: Symbol):
         reversed_coefficient = reversed_ladder_term.coefficient
         operator_indices = [list(preorder_traversal(x))[1] for x in ladder_term.vib_op]
         denominator = D(*[ii for jj in [[sigma(index), omega(index)] for index in operator_indices] for ii in jj])
-        new_coefficient = -I*Rational(1, 2)*(forward_coefficient+reversed_coefficient)/denominator
+        # Multiplying by the piecewise denominator function.  If the denominator is zero, that term is removed
+        # (i.e. multiplied by zero) other wise the term will be divided by the denominator.
+        new_coefficient = -I*Rational(1, 2)*(forward_coefficient+reversed_coefficient)*denominator
         new_term = LadderTerm(ladder_term.vib_op,
                               ladder_term.rot_op,
                               new_coefficient,
