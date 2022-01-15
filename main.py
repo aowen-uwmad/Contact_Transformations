@@ -421,7 +421,7 @@ def H_Group(i: int):
     return value
 
 
-def targetExpression(i: int, j: int):
+def targetExpression(i: int, j: int, do_print=False):
     def transformedH(k, level):
         if level == 0:
             return H_Group(k)
@@ -453,9 +453,17 @@ def targetExpression(i: int, j: int):
 
     max_order = i + j - 2
     transforms = []
-    for m in range(1, i+1):
+    if i > 0:
+        m_range = i + 1
+        n_range = j + 1
+    elif i == 0:
+        m_range = 2
+        n_range = int(j / 2) + 1
+    else:
+        raise ValueError
+    for m in range(1, m_range):
         n_start = max([3-m, 0])
-        for n in range(n_start, j+1):
+        for n in range(n_start, n_range):
             transforms.append(GenericTerm(1, m, n, 'S'))
     n_transforms = len(transforms)
     up_to_max_order = GenericExpression([transformedH(k, n_transforms) for k in range(0, max_order + 1)])
@@ -470,6 +478,9 @@ def targetExpression(i: int, j: int):
         ).select(a, b)
         defining_equations.append([transform, term_to_block_diagonalize])
 
+    if do_print:
+        print(select_orders.sympy())
+        printDefiningEquations(defining_equations)
     return select_orders, defining_equations
 
 
@@ -479,7 +490,7 @@ def printDefiningEquations(defining_equations):
         other_part = item[1]
         vib_order = s_term.vib_order
         rot_order = s_term.rot_order
-        print('H_t({},{}) = {} + I*VC({}, H20)'.format(vib_order, rot_order, other_part.sympy(), s_term))
+        print('H_t({},{}) = ({}) + I*VC({}, H20)'.format(vib_order, rot_order, other_part.sympy(), s_term))
 
 
 class Term:
