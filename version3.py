@@ -4,6 +4,7 @@ import numpy as np
 from sympy import LeviCivita, Function, I, preorder_traversal, Symbol, symbols, Rational, summation, Mul
 from sympy.physics.quantum.operator import Operator
 from math import factorial
+from itertools import product
 
 
 def printDictionary(dictionary: dict):
@@ -878,20 +879,57 @@ class Term:
         print('rot_indices: {}'.format(self.rot_indices))
         print('coefficient: {}\n'.format(self.coefficient))
 
-    def sympy(self):
+    def sympy(self, number_of_vib_modes=nm):
         summation_indices = []
         for vib_index in self.vib_indices:
-            summation_indices.append((vib_index, 0, nm))
+            if not isinstance(vib_index, int):
+                summation_indices.append((vib_index, 0, number_of_vib_modes-1))
         for rot_index in self.rot_indices:
-            summation_indices.append((rot_index, 0, 2))
+            if not isinstance(rot_index, int):
+                summation_indices.append((rot_index, 0, 2))
         operators = []
         for vib_op in self.vib_op:
             operators.append(vib_op)
         for rot_op in self.rot_op:
             operators.append(rot_op)
         op_part = Mul(*operators)
-        sum_part = summation(self.coefficient*op_part, *summation_indices)
-        return sum_part
+        if len(summation_indices) > 0:
+            result = summation(self.coefficient*op_part, *summation_indices)
+        else:
+            result = self.coefficient*op_part
+        return result
+
+    def vibrational_matrix_element(self, state1, state2, basis):
+        if not isinstance(state1, VibState):
+            raise TypeError
+        elif not isinstance(state2, VibState):
+            raise TypeError
+
+        operator_types = []
+        for operator in self.vib_op:
+            if operator.func == qop:
+                operator_types.append('q')
+            elif operator.func == pop:
+                operator_types.append('p')
+
+        possible_indices_ranges = [range(starting_mode, n_modes)]*self.n_vib_op
+        possible_indices = list(product(*possible_indices_ranges))
+
+        sympy_result = 0
+        for indices_list in possible_indices:
+            operators_list = list(zip(operator_types, indices_list))
+            result = evaluate_multi_vib_op(operators_list, state1, state2, basis)
+            if len(result) > 0:
+                for entry in result:
+                    changed_term = self.changeVibIndices(indices_list)
+                    new_term = Term([],
+                                    changed_term.rot_op,
+                                    changed_term.coefficient,
+                                    [i for i in changed_term.vib_indices if not isinstance(i, int)],
+                                    changed_term.rot_indices)
+                    sympy_result += entry[0]*new_term.sympy(n_modes)
+
+        return sympy_result
 
 
 def pure_vibration_commutator(left: list, right: list):
@@ -1191,15 +1229,8 @@ class Expression:
             total += item.sympy()
         return total
 
-    def vibrational_matrix_element(self, state1, state2):
-        # TODO: Create function to filter the expression of only the vib operators that will lead to
-        #  a nonzero matrix element, so that numerical evaluation isn't performed on the ultimately zero terms.
-        pass
-
-    def rotational_matrix_element(self, state1, state2):
-        # TODO: Create function to filter the expression of only the rot operators that will lead to a nonzero
-        #  matrix element.
-        pass
+    def vibrational_matrix_element(self, state1, state2, basis):
+        return sum([item.vibrational_matrix_element(state1, state2, basis) for item in self.items])
 
 
 class LadderTerm:
@@ -1599,9 +1630,6 @@ def rot_indices_sorter(indices_list):
         return list(new_indices_list)
 
 
-resonance_threshold = 25  # wavenumbers (CM-1)
-
-
 (h_not_bar, speed_of_light, h_bar, n_modes, w0, v0,
  zeta, b0, B0, k3, aD, i0, capital_omega, baan, baann, ee_f, tau) = anharmonic_data_import(
     [Path('benzonitrile_cfour_outputs/anharm.out'),
@@ -1611,7 +1639,159 @@ resonance_threshold = 25  # wavenumbers (CM-1)
     program='CFOUR')
 
 
+starting_mode = 6  # if CFOUR
+# starting_mode = 1  # if Gaussian?
+
+resonance_threshold = 25  # wavenumbers (CM-1)
 resonance_threshold_hz = resonance_threshold * 100 * speed_of_light  # Hertz (Hz)
+
+max_state_energy = 1000  # wavenumbers
+
+
+def describe_normal_modes():
+    print("i    wavenumbers")
+    for i in range(starting_mode, n_modes):
+        print("{}:  {}".format(i, w0(i)))
+
+
+class VibState:
+    def __init__(self, quanta_dict=None):
+        state = {i: 0 for i in range(starting_mode, n_modes)}
+        if quanta_dict is None:
+            self._quanta = state
+        elif isinstance(quanta_dict, dict):
+            for mode, quanta in quanta_dict.items():
+                if quanta < 0:
+                    raise ValueError
+                state[mode] = quanta
+            self._quanta = state
+        else:
+            raise TypeError
+
+    @property
+    def quanta(self):
+        return self._quanta
+
+    def __repr__(self):
+        quanta_list = ["{}v{}".format(self.quanta[i], i) for i in range(starting_mode, n_modes) if self.quanta[i] > 0]
+        if len(quanta_list) == 0:
+            quanta_string = "0"
+        else:
+            quanta_string = " ".join(quanta_list)
+        return "|{}>".format(quanta_string)
+
+    def __eq__(self, other):
+        if isinstance(other, VibState):
+            for key in self.quanta.keys():
+                if self.quanta[key] != other.quanta[key]:
+                    return False
+            return True
+        else:
+            return False
+
+    def energy(self, MHz=False):
+        if MHz:
+            result = sum([v0(i)*self.quanta[i] for i in range(starting_mode, n_modes)])/1000000
+        else:
+            result = sum([w0(i)*self.quanta[i] for i in range(starting_mode, n_modes)])
+        return result
+
+
+def vib_basis(max_energy=max_state_energy):
+    max_quanta = [int(max_energy // w0(i)) for i in range(starting_mode, n_modes)]
+    ranges = [range(0, i+1) for i in max_quanta]
+    basis_quanta_list = product(*ranges)
+    vib_state_list = []
+    for quanta in basis_quanta_list:
+        quanta_dict = {i+6: quanta[i] for i in range(len(quanta))}
+        state_energy = sum([quanta_dict[i]*w0(i) for i in range(starting_mode, n_modes)])
+        if state_energy <= max_energy:
+            vib_state_list.append(VibState(quanta_dict))
+    result = sorted(vib_state_list, key=lambda i: i.energy())
+    return result
+
+
+def evaluate_qop(mode: int, state1: VibState, state2: VibState):
+    for i in range(starting_mode, n_modes):
+        if i != mode:
+            if state1.quanta[i] != state2.quanta[i]:
+                return 0
+    state1_mode_quanta = state1.quanta[mode]
+    state2_mode_quanta = state2.quanta[mode]
+    if state2_mode_quanta == state1_mode_quanta+1:
+        return np.sqrt((state1_mode_quanta+1)/2)
+    elif state2_mode_quanta == state1_mode_quanta-1:
+        return np.sqrt((state1_mode_quanta/2))
+    else:
+        return 0
+
+
+def evaluate_pop(mode: int, state1: VibState, state2: VibState):
+    for i in range(starting_mode, n_modes):
+        if i != mode:
+            if state1.quanta[i] != state2.quanta[i]:
+                return 0
+    state1_mode_quanta = state1.quanta[mode]
+    state2_mode_quanta = state2.quanta[mode]
+    if state2_mode_quanta == state1_mode_quanta+1:
+        return np.sqrt((state1_mode_quanta+1)/2) / 1j
+    elif state2_mode_quanta == state1_mode_quanta-1:
+        return np.sqrt((state1_mode_quanta/2)) / (-1j)
+    else:
+        return 0
+
+
+def evaluate_multi_vib_op(operator_list: list, state1: VibState, state2: VibState, basis: list):
+    n_operators = len(operator_list)
+    combinations_list = [[1, [state1]]]
+    counter = 1
+    for operator_type, mode in operator_list:
+        new_combinations_list = []
+        for coefficient, states in combinations_list:
+            left_state = states[-1]
+            if counter == n_operators:
+                right_states_list = [state2]
+            else:
+                right_states_list = [i for i in basis]
+            for right_state in right_states_list:
+                if operator_type == 'q':
+                    evaluation = evaluate_qop(mode, left_state, right_state)
+                elif operator_type == 'p':
+                    evaluation = evaluate_pop(mode, left_state, right_state)
+                else:
+                    raise TypeError
+                if evaluation != 0:
+                    new_coefficient = coefficient*evaluation
+                    new_states = [i for i in states] + [right_state]
+                    new_combinations_list.append([new_coefficient, new_states])
+        combinations_list = [i for i in new_combinations_list]
+        counter += 1
+    return combinations_list
+
+
+def extract_jop_coefficients(sympy_expression, n_rot_op):
+    possible_rot_operators = [[jop(0), jop(1), jop(2)]]*n_rot_op
+    if len(possible_rot_operators) == 0:
+        # !!!Only guaranteed to work on expanded expressions.!!!
+        return sum([
+            i for i in sympy_expression.args
+            if not any(j.func == jop for j in preorder_traversal(i)
+                       if isinstance(j, Function))])
+    elif len(possible_rot_operators) == 1:
+        possible_rot_operators_list = [[i] for i in possible_rot_operators[0]]
+    elif len(possible_rot_operators) > 1:
+        possible_rot_operators_list = list(product(*possible_rot_operators))
+    else:
+        raise ValueError
+    shape_tuple = tuple(3 for i in range(n_rot_op))
+    extraction_array = np.zeros(shape=shape_tuple, dtype='complex')
+    for operators in possible_rot_operators_list:
+        operator_product = Mul(*operators)
+        indices = [i.args[0] for i in operators]
+        coefficient = sympy_expression.as_coefficient(operator_product)
+        if coefficient is not None:
+            extraction_array.itemset(tuple(indices), coefficient)
+    return extraction_array
 
 
 def caan(ra, rb, va):
@@ -1762,4 +1942,15 @@ term_definitions = {
     #               [v(0), v(1), v(2)],
     #               [r(0), r(1)])
 }
+
+
+ground = VibState()
+nu22 = VibState({6: 1})
+nu33 = VibState({7: 1})
+
+mvb = vib_basis()
+
+
+h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
+nu22_h21_nu33 = h21.vibrational_matrix_element(nu22, nu33, mvb)
 
