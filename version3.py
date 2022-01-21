@@ -639,7 +639,10 @@ class Term:
         for i in range(0, len(self.vib_indices)):
             substitution_rules[self.vib_indices[i]] = new_vib_indices_list[i]
         new_vib_op = [x.subs(substitution_rules, simultaneous=True) for x in self.vib_op]
-        new_coefficient = self.coefficient.subs(substitution_rules, simultaneous=True)
+        try:
+            new_coefficient = self.coefficient.subs(substitution_rules, simultaneous=True)
+        except AttributeError:
+            new_coefficient = self.coefficient
         new_vib_indices = []
         for x in new_vib_indices_list:
             if x not in new_vib_indices:
@@ -877,11 +880,11 @@ class Term:
         print('rot_indices: {}'.format(self.rot_indices))
         print('coefficient: {}\n'.format(self.coefficient))
 
-    def sympy(self, number_of_vib_modes=nm):
+    def sympy(self, number_of_vib_modes=nm, starting_mode=0):
         summation_indices = []
         for vib_index in self.vib_indices:
             if not isinstance(vib_index, int):
-                summation_indices.append((vib_index, 0, number_of_vib_modes-1))
+                summation_indices.append((vib_index, starting_mode, number_of_vib_modes))
         for rot_index in self.rot_indices:
             if not isinstance(rot_index, int):
                 summation_indices.append((rot_index, 0, 2))
@@ -892,7 +895,9 @@ class Term:
             operators.append(rot_op)
         op_part = Mul(*operators)
         if len(summation_indices) > 0:
-            result = summation(self.coefficient*op_part, *summation_indices)
+            result = self.coefficient*op_part
+            for sum_index in summation_indices:
+                result = sum([result.subs(sum_index[0], i) for i in range(sum_index[1], sum_index[2])])
         else:
             result = self.coefficient*op_part
         return result
@@ -934,12 +939,13 @@ class Term:
                                     changed_term.coefficient.replace(nm, n_modes),
                                     [i for i in changed_term.vib_indices if not isinstance(i, int)],
                                     changed_term.rot_indices)
-                    sympy_result += entry[0]*new_term.sympy(n_modes)
+                    sympy_result += entry[0]*new_term.sympy(n_modes, starting_mode)
 
-        if sympy_result == 0:
-            return 0
-        else:
-            return sympy_result.expand()
+        try:
+            final_result = sympy_result.expand()
+        except AttributeError:
+            final_result = sympy_result
+        return final_result
 
 
 def pure_vibration_commutator(left: list, right: list):
@@ -1795,11 +1801,13 @@ def extract_jop_coefficients(sympy_expression, n_rot_op):
         raise ValueError
     shape_tuple = tuple(3 for i in range(n_rot_op))
     extraction_array = np.zeros(shape=shape_tuple, dtype='complex')
+    expression_dictionary = sympy_expression.as_coefficients_dict()
+    coefficients_keys = expression_dictionary.keys()
     for operators in possible_rot_operators_list:
         operator_product = Mul(*operators)
         indices = [i.args[0] for i in operators]
-        coefficient = sympy_expression.as_coefficient(operator_product)
-        if coefficient is not None:
+        if operator_product in coefficients_keys:
+            coefficient = expression_dictionary[operator_product]
             extraction_array.itemset(tuple(indices), coefficient)
     return extraction_array
 
@@ -2053,13 +2061,15 @@ nu33 = VibState({7: 1})
 mvb = vib_basis()
 
 
-h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
-nu22_h21_nu33 = h21.vibrational_matrix_element(nu22, nu33, mvb)
+# h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
+# nu22_h21_nu33 = h21.vibrational_matrix_element(nu22, nu33, mvb)
+# ht21_target, ht21_defining = targetExpression(2, 1)
+# s21, s21_definitions = transform_solution(ht21_defining[0][1].toEquation(term_definitions), ht21_defining[0][0].symbol)
+# with_transforms = {**term_definitions, **{ht21_defining[0][0].symbol: s21}}
+# ht21 = ht21_target.toEquation(with_transforms)
 
-h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
-ht21_target, ht21_defining = targetExpression(2, 1)
-s21, s21_definitions = transform_solution(ht21_defining[0][1].toEquation(term_definitions), ht21_defining[0][0].symbol)
-with_transforms = {**term_definitions, **{ht21_defining[0][0].symbol: s21}}
-ht21 = ht21_target.toEquation(with_transforms)
-
+h22 = GenericTerm(1, 2, 2, 'H').toEquation(term_definitions)
+ht22_target, ht22_defining = targetExpression(2, 2)
+with_transforms, sub_definitions = find_transform_solutions(ht22_defining, term_definitions)
+ht22 = ht22_target.toEquation(with_transforms)
 
