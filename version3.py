@@ -1,8 +1,7 @@
 from pathlib import Path
 from computational_data_parser import anharmonic_data_import
 import numpy as np
-from sympy import LeviCivita, Function, I, preorder_traversal, Symbol, symbols, Rational, summation, Mul
-from sympy.physics.quantum.operator import Operator
+from sympy import LeviCivita, Function, I, preorder_traversal, Symbol, symbols, Rational, summation, Mul, signsimp
 from math import factorial
 from itertools import product
 
@@ -45,7 +44,6 @@ sigma = Function('sigma')  # sign (+/-)
 omega = Function('omega')  # harmonic frequency
 VC = Function('VC')  # Vibrational Commutator
 RC = Function('RC')  # Rotational Commutator
-D = Function('D')  # Denominator
 nm = Symbol('nm')  # Number of Vibrational Modes
 
 
@@ -906,7 +904,9 @@ class Term:
             raise TypeError
 
         operator_types = []
+        operator_indices = []
         for operator in self.vib_op:
+            operator_indices.append(operator.args[0])
             if operator.func == qop:
                 operator_types.append('q')
             elif operator.func == pop:
@@ -921,15 +921,25 @@ class Term:
             result = evaluate_multi_vib_op(operators_list, state1, state2, basis)
             if len(result) > 0:
                 for entry in result:
-                    changed_term = self.changeVibIndices(indices_list)
+                    replacements = {key: value for key, value in zip(operator_indices, indices_list)}
+                    indices_replacements = []
+                    for index in self.vib_indices:
+                        if index in operator_indices:
+                            indices_replacements.append(replacements[index])
+                        else:
+                            indices_replacements.append(index)
+                    changed_term = self.changeVibIndices(indices_replacements)
                     new_term = Term([],
                                     changed_term.rot_op,
-                                    changed_term.coefficient,
+                                    changed_term.coefficient.replace(nm, n_modes),
                                     [i for i in changed_term.vib_indices if not isinstance(i, int)],
                                     changed_term.rot_indices)
                     sympy_result += entry[0]*new_term.sympy(n_modes)
 
-        return sympy_result
+        if sympy_result == 0:
+            return 0
+        else:
+            return sympy_result.expand()
 
 
 def pure_vibration_commutator(left: list, right: list):
@@ -1794,6 +1804,119 @@ def extract_jop_coefficients(sympy_expression, n_rot_op):
     return extraction_array
 
 
+class D(Function):
+    n_args = [i for i in range(2, 60)]  # Very unlikely to encounter vibrational indices > 30, but if so, change this.
+
+    @classmethod
+    def eval(cls, *args):
+        args_list = [*args]
+        indices = [args_list[i] for i in range(1, len(args_list), 2)]
+        if all(x.is_Integer for x in indices):
+            counter = 0
+            pairs = []
+            while counter+1 < len(args_list):
+                new_pair = [args_list[counter], args_list[counter+1]]
+                counter += 2
+                pairs.append(new_pair)
+            denominator_sum = 0
+            for pair in pairs:
+                sign = pair[0]
+                index = pair[1]
+                denominator_sum += sign * v0(index)
+            if denominator_sum <= resonance_threshold_hz:
+                return 0
+            else:
+                return 1 / denominator_sum
+
+
+def transform_solution(defining_expression, base_name: Symbol):
+    def global_transform_class_creator(sub_name, sub_expression, indices_list):
+        class PlaceHolderClass(Function):
+            n_args = len(indices_list)
+
+            @classmethod
+            def eval(cls, *args):
+                if all(x.is_Integer for x in args):
+                    sub_rules = {indices_list[i]: args[i] for i in range(len(args))}
+                    return sub_expression.subs(sub_rules, simultaneous=True)
+
+        globals()[str(sub_name)] = type(str(sub_name), (PlaceHolderClass,), {})
+
+    if isinstance(defining_expression, Term):
+        ladder_expression = Expression([defining_expression]).toLadder()
+    elif isinstance(defining_expression, Expression):
+        ladder_expression = defining_expression.toLadder()
+    else:
+        raise TypeError
+
+    final_ladder_terms = []
+
+    for i in range(0, len(ladder_expression)):
+        ladder_term = ladder_expression[i]
+        reversed_ladder_term = ladder_term.changeVibIndices(list(reversed(ladder_term.vib_indices)))
+        forward_coefficient = ladder_term.coefficient
+        reversed_coefficient = reversed_ladder_term.coefficient
+        operator_indices = [list(preorder_traversal(x))[1] for x in ladder_term.vib_op]
+        denominator = D(*[ii for jj in [[sigma(index), index] for index in operator_indices] for ii in jj])
+        # Multiplying by the piecewise denominator function.  If the denominator is zero, that term is removed
+        # (i.e. multiplied by zero) other wise the term will be divided by the denominator.
+        new_coefficient = -I*Rational(1, 2)*(forward_coefficient+reversed_coefficient)*denominator
+        new_term = LadderTerm(ladder_term.vib_op,
+                              ladder_term.rot_op,
+                              new_coefficient,
+                              ladder_term.vib_indices,
+                              ladder_term.rot_indices)
+        final_ladder_terms.append(new_term)
+    final_ladder_expression = LadderExpression(final_ladder_terms)
+    new_operator_expression = final_ladder_expression.toOperator()
+    subbed_terms = []
+    substitution_definitions = {}
+    for term in new_operator_expression:
+        term.coefficient = signsimp(term.coefficient)
+    new_operator_expression = Expression(new_operator_expression.items)
+    for i in range(0, len(new_operator_expression)):
+        term = new_operator_expression[i]
+        sub_name = "{}_{}".format(base_name, i)
+        full_coefficient = term.coefficient
+        vib_indices = []
+        rot_indices = []
+        for x in preorder_traversal(full_coefficient):
+            if isinstance(x, Symbol):
+                if str(x)[0] == 'v':
+                    if x not in vib_indices:
+                        vib_indices.append(x)
+                elif str(x)[0] == 'r':
+                    if x not in rot_indices:
+                        rot_indices.append(x)
+        indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+        global_transform_class_creator(sub_name, full_coefficient, indices)
+        new_coefficient = globals()[sub_name](*indices)
+        substitution_definitions[new_coefficient] = full_coefficient
+        new_term = Term(term.vib_op,
+                        term.rot_op,
+                        new_coefficient,
+                        term.vib_indices,
+                        term.rot_indices)
+        subbed_terms.append(new_term)
+    final_expression = Expression(subbed_terms)
+    return final_expression, substitution_definitions
+
+
+def find_transform_solutions(defining_equations, base_definitions):
+    definitions_with_transforms = {**base_definitions}
+    sub_definitions = {}
+    for s_part, defining_part in defining_equations:
+        base_name = s_part.symbol
+        expression = defining_part.toEquation(definitions_with_transforms)
+        solution, solution_definitions = transform_solution(expression, base_name)
+        definitions_with_transforms[base_name] = solution
+        sub_definitions[base_name] = solution_definitions
+    return definitions_with_transforms, sub_definitions
+
+
+
+
+
 def caan(ra, rb, va):
     value = (-1)*baan(ra, rb, va)/v0(va)
     return value
@@ -1885,27 +2008,6 @@ class A22(Function):
             return value
 
 
-class DC(Function):
-    n_args = [i for i in range(2, 20)]  # CHANGE THIS for vib orders greater than ten.
-
-    @classmethod
-    def eval(cls, *args):
-        args_list = [*args]
-        counter = 0
-        pairs = []
-        while counter+1 < len(args_list):
-            new_pair = [args_list[counter], args_list[counter+1]]
-            counter += 2
-            pairs.append(new_pair)
-        denominator_sum = 0
-        for pair in pairs:
-            sign = pair[0]
-            index = list(pair[1].args)[0]
-            denominator_sum += sign * v0(index)
-        if denominator_sum <= resonance_threshold_hz:
-            return 0
-        else:
-            return 1 / denominator_sum
 
 
 term_definitions = {
@@ -1953,4 +2055,11 @@ mvb = vib_basis()
 
 h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
 nu22_h21_nu33 = h21.vibrational_matrix_element(nu22, nu33, mvb)
+
+h21 = GenericTerm(1, 2, 1, 'H').toEquation(term_definitions)
+ht21_target, ht21_defining = targetExpression(2, 1)
+s21, s21_definitions = transform_solution(ht21_defining[0][1].toEquation(term_definitions), ht21_defining[0][0].symbol)
+with_transforms = {**term_definitions, **{ht21_defining[0][0].symbol: s21}}
+ht21 = ht21_target.toEquation(with_transforms)
+
 
