@@ -4,6 +4,7 @@ import numpy as np
 from sympy import LeviCivita, Function, I, preorder_traversal, Symbol, symbols, Rational, summation, Mul, signsimp
 from math import factorial
 from itertools import product
+from tqdm import tqdm
 
 
 def printDictionary(dictionary: dict):
@@ -880,27 +881,54 @@ class Term:
         print('rot_indices: {}'.format(self.rot_indices))
         print('coefficient: {}\n'.format(self.coefficient))
 
-    def sympy(self, number_of_vib_modes=nm, starting_mode=0):
-        summation_indices = []
+    def sympy(self, number_of_vib_modes=nm, starting_mode=0, progress=True):
+        indices_symbols = []
+        possible_indices_ranges = []
         for vib_index in self.vib_indices:
             if not isinstance(vib_index, int):
-                summation_indices.append((vib_index, starting_mode, number_of_vib_modes))
+                indices_symbols.append(vib_index)
+                possible_indices_ranges.append(range(starting_mode, number_of_vib_modes))
         for rot_index in self.rot_indices:
             if not isinstance(rot_index, int):
-                summation_indices.append((rot_index, 0, 2))
-        operators = []
-        for vib_op in self.vib_op:
-            operators.append(vib_op)
-        for rot_op in self.rot_op:
-            operators.append(rot_op)
-        op_part = Mul(*operators)
-        if len(summation_indices) > 0:
-            result = self.coefficient*op_part
-            for sum_index in summation_indices:
-                result = sum([result.subs(sum_index[0], i) for i in range(sum_index[1], sum_index[2])])
+                indices_symbols.append(rot_index)
+                possible_indices_ranges.append(range(0, 3))
+
+        possible_indices = list(product(*possible_indices_ranges))
+        results_list = []
+        if progress:
+            progress_disable = False
         else:
-            result = self.coefficient*op_part
-        return result
+            progress_disable = True
+        for indices_list in tqdm(possible_indices, disable=progress_disable):
+            replacements = {key: value for key, value in list(zip(indices_symbols, indices_list))}
+            op_part = Mul(*[*self.vib_op, *self.rot_op])
+            expression = self.coefficient*op_part
+            result = expression.subs(replacements, simultaneous=True)
+            results_list.append(result)
+        nonzero_results = [i for i in results_list if i != 0]
+        summed_results = sum(nonzero_results)
+        return summed_results, nonzero_results
+
+        # summation_indices = []
+        # for vib_index in self.vib_indices:
+        #     if not isinstance(vib_index, int):
+        #         summation_indices.append((vib_index, starting_mode, number_of_vib_modes))
+        # for rot_index in self.rot_indices:
+        #     if not isinstance(rot_index, int):
+        #         summation_indices.append((rot_index, 0, 2))
+        # operators = []
+        # for vib_op in self.vib_op:
+        #     operators.append(vib_op)
+        # for rot_op in self.rot_op:
+        #     operators.append(rot_op)
+        # op_part = Mul(*operators)
+        # if len(summation_indices) > 0:
+        #     result = self.coefficient*op_part
+        #     for sum_index in summation_indices:
+        #         result = sum([result.subs(sum_index[0], i) for i in range(sum_index[1], sum_index[2])])
+        # else:
+        #     result = self.coefficient*op_part
+        # return result
 
     def vibrational_matrix_element(self, state1, state2, basis):
         if not isinstance(state1, VibState):
@@ -939,7 +967,8 @@ class Term:
                                     changed_term.coefficient.replace(nm, n_modes),
                                     [i for i in changed_term.vib_indices if not isinstance(i, int)],
                                     changed_term.rot_indices)
-                    sympy_result += entry[0]*new_term.sympy(n_modes, starting_mode)
+                    sympy_evaluation, sympy_evaluation_list = new_term.sympy(n_modes, starting_mode)
+                    sympy_result += entry[0]*sympy_evaluation
 
         try:
             final_result = sympy_result.expand()
