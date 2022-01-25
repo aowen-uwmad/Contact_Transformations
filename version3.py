@@ -1951,6 +1951,45 @@ def find_transform_solutions(defining_equations, base_definitions):
     return definitions_with_transforms, sub_definitions
 
 
+def export_as_script_from_target(i: int, j: int, initial_term_definitions: dict, file_name=None, modular=True):
+    if file_name is None:
+        file_name = 'ht{}{}_export.py'.format(i, j)
+
+    target_expression, target_defining_equations = targetExpression(i, j)
+    term_definitions_with_transforms, substitution_definitions = find_transform_solutions(target_defining_equations,
+                                                                                          initial_term_definitions)
+    target_equation = target_expression.toEquation(term_definitions_with_transforms)
+
+    base_name = 'ht{}{}'.format(i, j)
+    subbed_terms = []
+    new_substitutions = {}
+    for i in range(len(target_equation)):
+        term = target_equation[i]
+        sub_name = "{}_{}".format(base_name, i)
+        full_coefficient = term.coefficient
+        vib_indices = []
+        rot_indices = []
+        for x in preorder_traversal(full_coefficient):
+            if isinstance(x, Symbol):
+                if str(x)[0] == 'v':
+                    if x not in vib_indices:
+                        vib_indices.append(x)
+                elif str(x)[0] == 'r':
+                    if x not in rot_indices:
+                        rot_indices.append(x)
+        indices = vib_indices_sorter(vib_indices) + rot_indices_sorter(rot_indices)
+        new_sub_key = Function(sub_name)(*indices)
+        new_substitutions[new_sub_key] = full_coefficient
+        new_term = Term(term.vib_op,
+                        term.rot_op,
+                        new_sub_key,
+                        term.vib_indices,
+                        term.rot_indices)
+        subbed_terms.append(new_term)
+    final_equation = Expression(subbed_terms)
+    final_substitution_definitions = {**substitution_definitions, **{Symbol(base_name): new_substitutions}}
+
+    # Converting final_equation and final_substitution_definitions to export script.
 
 
 
